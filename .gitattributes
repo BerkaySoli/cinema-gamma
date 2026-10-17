@@ -1,2 +1,0 @@
-# Batch files must keep their CRLF line endings: store and check them out byte for byte.
-*.cmd -text
