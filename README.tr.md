@@ -13,6 +13,7 @@ BenQ GW2790C'nin resim modlarında gamma veya kontrast ayarı yok ve Cinema modu
 ## Özellikler
 
 - **Eye-CareU'ya yapışır.** Panel, Eye-CareU penceresine boşluksuz yapışır; aynı renkleri ve aynı yuvarlak köşeleri kullanır. Eye-CareU ekranın sağ kenarına yakınsa panel sol tarafa geçer.
+- **Katlanır.** Ok düğmesi paneli Eye-CareU'nun kenarında küçük bir kareye katlar; karenin üzerindeki ok paneli yeniden açar. Panel açık mı kapalı mı olduğunu hatırlar.
 - **Sürekli kontrol etmeden takip eder.** Paneli pencere olayları yönetir. Eye-CareU hareket ettikten sonra 10 saniye boyunca sıkı takip eder, sonra uykuya geçer; hiçbir şey hareket etmezken işlemci kullanmaz.
 - **Her moda ayrı ayar.** Gamma (0,70–1,60), parlaklık (−0,30 ile +0,30 arası) ve kontrast (0,50–1,50); Standard, Cinema, Game, ePaper, Care Mode ve diğer tüm modlar için ayrı saklanır. Hiç dokunmadığınız modlar varsayılanda kalır.
 - **Anında geçiş.** Mod değişikliği Eye-CareU'nun günlüğüne düşer ve panel bunu yaklaşık 0,2 saniyede yakalar. Monitörün kendi tuşlarıyla yapılan değişiklikleri de monitörden DDC/CI ile doğrudan okuyarak yakalar.
@@ -23,7 +24,7 @@ BenQ GW2790C'nin resim modlarında gamma veya kontrast ayarı yok ve Cinema modu
 ## Gereksinimler
 
 - Windows 10 veya 11
-- [python.org](https://www.python.org/downloads/windows/) adresinden Python 3.9 veya daha yenisi (varsayılan kurulum Tk'yi içerir)
+- Kurulum dosyası için başka bir şey gerekmez. Kaynaktan çalıştırmak için: [python.org](https://www.python.org/downloads/windows/) adresinden Python 3.9 veya daha yenisi (varsayılan kurulum Tk'yi içerir)
 - BenQ Eye-CareU
 - Monitörün menüsünde DDC/CI açık olmalı (Eye-CareU'nun da buna ihtiyacı var)
 
@@ -35,12 +36,21 @@ BenQ GW2790C'nin resim modlarında gamma veya kontrast ayarı yok ve Cinema modu
 
 Mod adları Eye-CareU'nun kendi günlüğünden okunduğu için diğer modellerin modları da gerçek adlarıyla görünür. Başka bir modelde denerseniz çalışıp çalışmadığını bir issue açarak bildirin.
 
-## Kurulum ve çalıştırma
+## Kurulum
+
+1. [Son sürümden](../../releases/latest) **`CinemaGamma-Setup-x.y.z.exe`** dosyasını indirin.
+2. Çalıştırıp bitene kadar **İleri**'ye basın. Yönetici izni ve Python gerekmez.
+3. Hepsi bu. Cinema Gamma hemen ve bundan sonra her Windows açılışında kendiliğinden başlar; Eye-CareU açıldığında panel yanında görünür.
+
+Kaldırmak için **Ayarlar → Uygulamalar → Cinema Gamma → Kaldır**. Ekranın orijinal eğrisi geri gelir; ayarlarınız `%LOCALAPPDATA%\CinemaGamma` klasöründe kalır.
+
+> Kurulum dosyası kod imzalı olmadığı için Windows SmartScreen "bilinmeyen yayımcı" uyarısı verebilir. **Ek bilgi → Yine de çalıştır**'a basın.
+
+### Kaynaktan çalıştırma
 
 1. Python 3.9 veya daha yenisini kurun.
 2. Bu depoyu indirin (**Code → Download ZIP**) ve örneğin `Belgeler\CinemaGamma` klasörüne çıkarın.
-3. Başlatmak için **`Baslat.cmd`** dosyasına çift tıklayın. Eye-CareU her açıldığında panel yanında görünür.
-4. Durdurmak için **`Durdur.cmd`** dosyasına çift tıklayın. Ekranın orijinal eğrisi geri yüklenir.
+3. Başlatmak için **`Baslat.cmd`**, durdurmak için **`Durdur.cmd`** dosyasına çift tıklayın. Durdurunca ekranın orijinal eğrisi geri gelir.
 
 Komut satırı seçenekleri (Python PATH'te değilse `python` yerine `py` yazın):
 
@@ -61,8 +71,8 @@ Komut satırı seçenekleri (Python PATH'te değilse `python` yerine `py` yazın
 |---|---|
 | Bu modu sıfırla | Geçerli modu varsayılana döndürür |
 | Tüm modları sıfırla | Bütün modları varsayılana döndürür |
-| – | Eye-CareU kapatılıp ya da simge durumuna küçültülüp yeniden açılana kadar paneli gizler |
-| × | Programı kapatır (orijinal eğri geri gelir) |
+| ‹ (sağ üst) | Paneli Eye-CareU'nun kenarında küçük bir kareye katlar |
+| › (karenin üzerinde) | Paneli yeniden açar |
 
 ## Nasıl çalışır
 
@@ -88,6 +98,8 @@ Win32 çağrıları taklit edildiği için testler Windows'a veya monitöre ihti
 python tests/test_logic.py              # motor, ayarlar, Eye-CareU günlük izleyicisi, yapışma geometrisi
 python tests/test_panel.py              # Tk paneli (ekran gerekir; Linux'ta: xvfb-run python3 tests/test_panel.py)
 ```
+
+Kurulum dosyasını her push'ta GitHub Actions ([`build.yml`](.github/workflows/build.yml)) üretir: testleri çalıştırır, `CinemaGamma.exe`'yi PyInstaller ile, kurulum sihirbazını Inno Setup ile ([`installer/CinemaGamma.iss`](installer/CinemaGamma.iss)) derler, sonra sessizce kurup kaldırarak dener. Bir sürüm yayımlandığında (etiket `v1.2.3`) `CinemaGamma-Setup-1.2.3.exe` o sürüme eklenir.
 
 ## Lisans
 

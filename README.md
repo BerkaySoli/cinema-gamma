@@ -13,6 +13,7 @@ The BenQ GW2790C has no gamma or contrast control in its picture modes, and its 
 ## Features
 
 - **Docks to Eye-CareU.** The panel sits flush against the Eye-CareU window, in its colours and with matching rounded corners. When Eye-CareU is near the right edge of the screen, the panel moves to its left side.
+- **Folds away.** The arrow folds the panel into a small tab on Eye-CareU's edge; the tab's arrow opens it again. The panel remembers whether it was open.
 - **Follows without polling.** Window events drive the panel. After Eye-CareU moves, the panel tracks it closely for 10 seconds, then goes idle, so it uses no CPU while nothing moves.
 - **One setting per mode.** Gamma (0.70–1.60), brightness (−0.30 to +0.30) and contrast (0.50–1.50) are stored separately for Standard, Cinema, Game, ePaper, Care Mode and any other mode. Modes you never touch stay at the default.
 - **Instant switching.** Mode changes show up in Eye-CareU's log, and the panel picks them up in about 0.2 seconds. A direct DDC/CI read of the monitor also catches changes made with the monitor's own buttons.
@@ -23,7 +24,7 @@ The BenQ GW2790C has no gamma or contrast control in its picture modes, and its 
 ## Requirements
 
 - Windows 10 or 11
-- Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (the default installer includes Tk)
+- Nothing else for the installer. To run from source: Python 3.9 or newer from [python.org](https://www.python.org/downloads/windows/) (the default installer includes Tk)
 - BenQ Eye-CareU
 - DDC/CI turned on in the monitor's menu (Eye-CareU needs it too)
 
@@ -35,12 +36,21 @@ The BenQ GW2790C has no gamma or contrast control in its picture modes, and its 
 
 Mode names are read from Eye-CareU's own log, so other models' modes appear under their real names. If you try another model, please open an issue and say whether it worked.
 
-## Install and run
+## Install
+
+1. Download **`CinemaGamma-Setup-x.y.z.exe`** from the [latest release](../../releases/latest).
+2. Run it and click **Next** until it finishes. It needs no administrator rights and no Python.
+3. That's it. Cinema Gamma starts right away and from then on whenever Windows starts. The panel appears next to Eye-CareU whenever Eye-CareU is open.
+
+To remove it, use **Settings → Apps → Cinema Gamma → Uninstall**. The screen's original curve is restored. Your settings stay in `%LOCALAPPDATA%\CinemaGamma`.
+
+> Windows SmartScreen may warn about an unknown publisher, because the installer is not code-signed. Click **More info → Run anyway**.
+
+### Run from source
 
 1. Install Python 3.9 or newer.
 2. Download this repository (**Code → Download ZIP**) and extract it, for example to `Documents\CinemaGamma`.
-3. Double-click **`Baslat.cmd`** to start. The panel appears next to Eye-CareU whenever Eye-CareU is open.
-4. Double-click **`Durdur.cmd`** to stop. The screen's original curve is restored.
+3. Double-click **`Baslat.cmd`** to start, or **`Durdur.cmd`** to stop. Stopping restores the screen's original curve.
 
 Command-line options (use `py` instead of `python` if Python is not on your PATH):
 
@@ -66,8 +76,8 @@ The panel's labels are in Turkish:
 | varsayılan | This mode uses the default |
 | Bu modu sıfırla | Reset this mode |
 | Tüm modları sıfırla | Reset all modes |
-| – | Hide the panel until Eye-CareU is closed or minimised and opened again |
-| × | Quit (the original curve is restored) |
+| ‹ (top right) | Fold the panel into a small tab on Eye-CareU's edge |
+| › (on the tab) | Open the panel again |
 
 ## How it works
 
@@ -93,6 +103,8 @@ The tests need neither Windows nor a monitor, because Win32 calls are stubbed:
 python tests/test_logic.py              # engine, settings, Eye-CareU log watcher, docking geometry
 python tests/test_panel.py              # Tk panel (needs a display; on Linux: xvfb-run python3 tests/test_panel.py)
 ```
+
+The installer is built by GitHub Actions ([`build.yml`](.github/workflows/build.yml)) on every push. It runs the tests, builds `CinemaGamma.exe` with PyInstaller and the setup wizard with Inno Setup ([`installer/CinemaGamma.iss`](installer/CinemaGamma.iss)), then installs and uninstalls it silently as a smoke test. Publishing a release (tag `v1.2.3`) attaches `CinemaGamma-Setup-1.2.3.exe` to it.
 
 ## License
 

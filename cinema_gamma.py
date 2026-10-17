@@ -134,6 +134,7 @@ class Config:
     ddc_check_closed_s: float = 20.0  # while it is closed
     profiles: dict[str, Profile] = field(default_factory=dict)  # mode value -> its setting
     mode_names: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODE_NAMES))
+    panel_collapsed: bool = False    # the panel is folded into the small arrow tab
 
     @classmethod
     def load(cls) -> "Config":
@@ -147,7 +148,8 @@ class Config:
             return config
         if not isinstance(raw, dict):
             return config
-        for name in ("vcp_code", "monitor_tag", "eyecare_match", "ddc_check_open_s", "ddc_check_closed_s"):
+        for name in ("vcp_code", "monitor_tag", "eyecare_match", "ddc_check_open_s", "ddc_check_closed_s",
+                     "panel_collapsed"):
             if name in raw:
                 try:
                     setattr(config, name, type(getattr(config, name))(raw[name]))
@@ -1015,6 +1017,9 @@ class DockedPanel:
     RADIUS = 14              # our own outer corners, same as Eye-CareU's
     HEADER_H, TABS_H = 77, 50  # Eye-CareU's right-pane colour bands (100 % display scaling)
     TOP_INSET = 1            # Eye-CareU's first painted row is 1 px below its frame bounds
+    TAB_W, TAB_H = 30, 44    # the folded panel: a small tab with an arrow, visible part
+    TAB_TOP = 12             # its distance from Eye-CareU's top edge
+    TAB_RADIUS = 10
     TICK_OPEN_MS = 150       # status refresh while the panel is showing (mode switches show at once)
     TICK_CLOSED_MS = 2000    # while it is parked (Eye-CareU closed)
     FOLLOW_CHECK_S = 0.5     # safety-net re-check of Eye-CareU's window (moves come as WinEvents)
@@ -1036,7 +1041,7 @@ class DockedPanel:
         self.eyecare = None       # HWND of the Eye-CareU main window (may be hidden)
         self.mode: int | None = None  # the mode whose setting the sliders show
         self.visible = False
-        self.user_hidden = False  # "–" pressed: stay hidden until Eye-CareU is reopened
+        self.collapsed = config.panel_collapsed  # folded into the arrow tab
         self._geometry: tuple[int, int, int, int] | None = None  # last (x, y, w, h) we set
         self._shape: tuple[int, int, str] | None = None         # last (w, h, side) region
         self._side = "right"
@@ -1060,7 +1065,7 @@ class DockedPanel:
         # "hiding" means parking it off-screen again. After creation it is moved
         # only with SetWindowPos (see _place), never through Tk's geometry code.
         root.update_idletasks()
-        self.min_height = root.winfo_reqheight()
+        self.min_height = self.full_view.winfo_reqheight()  # also right when starting folded
         previous_foreground = user32.GetForegroundWindow()
         width = self.WIDTH + self.OVERLAP
         root.geometry(f"{width}x{self.min_height}+{OFFSCREEN}+{OFFSCREEN}")
@@ -1079,22 +1084,27 @@ class DockedPanel:
     # ---- layout ------------------------------------------------------------
     def _build(self) -> None:
         tk, ttk, c, root = self.tk, self.ttk, self.COLORS, self.root
-        root.configure(bg=c["content"])
+        root.configure(bg=c["header"])
 
-        # Three bands lined up with Eye-CareU's: header, tab row, content.
-        header = tk.Frame(root, bg=c["header"], height=self.HEADER_H)
+        # Folded state: only a small tab with an arrow, stuck to Eye-CareU's edge.
+        self.tab_view = tk.Canvas(root, bg=c["header"], highlightthickness=0, bd=0, cursor="hand2")
+        self._bind_click(self.tab_view, self.expand)
+
+        # Open state: three bands lined up with Eye-CareU's: header, tab row, content.
+        self.full_view = full = tk.Frame(root, bg=c["content"])
+        header = tk.Frame(full, bg=c["header"], height=self.HEADER_H)
         header.pack(fill="x")
         header.pack_propagate(False)
         header_in = tk.Frame(header, bg=c["header"])
         header_in.pack(fill="both", expand=True)
-        controls = tk.Frame(header_in, bg=c["header"])
-        controls.place(relx=1.0, x=6, y=8, anchor="ne")
-        self._icon_button(controls, "close", self.quit).pack(side="right")
-        self._icon_button(controls, "minimize", self.hide_by_user).pack(side="right", padx=(0, 4))
+        self.fold_button = tk.Canvas(header_in, width=22, height=22, bg=c["header"], highlightthickness=0,
+                                     bd=0, cursor="hand2")
+        self.fold_button.place(relx=1.0, x=6, y=8, anchor="ne")
+        self._bind_click(self.fold_button, self.collapse)
         tk.Label(header_in, text="Mod Ayarları", bg=c["header"], fg=c["text"],  # on Eye-CareU's "Settings" line
                  font=("Segoe UI Semibold", 11)).place(x=0, rely=1.0, y=-6, anchor="sw")
 
-        tabs = tk.Frame(root, bg=c["tabs"], height=self.TABS_H)
+        tabs = tk.Frame(full, bg=c["tabs"], height=self.TABS_H)
         tabs.pack(fill="x")
         tabs.pack_propagate(False)
         tabs_in = tk.Frame(tabs, bg=c["tabs"])
@@ -1105,7 +1115,7 @@ class DockedPanel:
                                      wraplength=self.WIDTH - 32)
         self.status_label.place(x=0, rely=0.5, anchor="w")
 
-        body = tk.Frame(root, bg=c["content"])
+        body = tk.Frame(full, bg=c["content"])
         body.pack(fill="both", expand=True)
 
         style = ttk.Style(root)
@@ -1142,6 +1152,7 @@ class DockedPanel:
                  font=("Segoe UI", 9), anchor="w").pack(fill="x", pady=(6, 0))
 
         self._padded = (header_in, tabs_in, body)
+        self._show_view()
 
     def _button(self, parent, text: str, command, *, bg: str, fg: str, hover: str, hover_fg: str | None = None,
                 font=("Segoe UI Semibold", 9), padx: int = 10, pady: int = 6):
@@ -1162,29 +1173,45 @@ class DockedPanel:
         button.bind("<ButtonRelease-1>", on_release)
         return button
 
-    def _icon_button(self, parent, kind: str, command):
-        """Window controls drawn as lines, like Eye-CareU's own "–" and "×"."""
-        c, size = self.COLORS, 22
-        canvas = self.tk.Canvas(parent, width=size, height=size, bg=c["header"], highlightthickness=0,
-                                bd=0, cursor="hand2")
-        if kind == "minimize":
-            canvas.create_line(4, 11, 18, 11, width=2, fill=c["accent"], capstyle="round")
-        else:
-            canvas.create_line(5, 5, 17, 17, width=2, fill=c["accent"], capstyle="round")
-            canvas.create_line(17, 5, 5, 17, width=2, fill=c["accent"], capstyle="round")
+    def _bind_click(self, canvas, command) -> None:
+        """Fire on mouse-button release over the canvas (works for injected clicks too); the
+        arrow lights up on hover."""
+        c = self.COLORS
 
         def recolor(color: str) -> None:
             for item in canvas.find_all():
                 canvas.itemconfigure(item, fill=color)
 
         def on_release(event) -> None:
-            if 0 <= event.x < size and 0 <= event.y < size:
+            if 0 <= event.x < canvas.winfo_width() and 0 <= event.y < canvas.winfo_height():
                 command()
 
         canvas.bind("<Enter>", lambda _event: recolor(c["accent_hover"]))
         canvas.bind("<Leave>", lambda _event: recolor(c["accent"]))
         canvas.bind("<ButtonRelease-1>", on_release)
-        return canvas
+
+    def _draw_arrow(self, canvas, cx: float, cy: float, pointing: str) -> None:
+        """A chevron like Eye-CareU's own "<" button, pointing left or right."""
+        canvas.delete("all")
+        dx = 4 if pointing == "right" else -4
+        canvas.create_line(cx - dx, cy - 7, cx + dx, cy, cx - dx, cy + 7, width=2,
+                           fill=self.COLORS["accent"], capstyle="round", joinstyle="round")
+
+    def _redraw_arrows(self) -> None:
+        """Open: the arrow points back towards Eye-CareU (fold). Folded: it points outwards (open)."""
+        towards_eyecare = "left" if self._side == "right" else "right"
+        away = "right" if self._side == "right" else "left"
+        self._draw_arrow(self.fold_button, 11, 11, towards_eyecare)
+        tab_x = self.OVERLAP + self.TAB_W / 2 if self._side == "right" else self.TAB_W / 2
+        self._draw_arrow(self.tab_view, tab_x, self.TAB_H / 2, away)
+
+    def _show_view(self) -> None:
+        if self.collapsed:
+            self.full_view.pack_forget()
+            self.tab_view.pack(fill="both", expand=True)
+        else:
+            self.tab_view.pack_forget()
+            self.full_view.pack(fill="both", expand=True)
 
     def _update_padding(self) -> None:
         """Keep content clear of the strip that sits under Eye-CareU (Tk thread only)."""
@@ -1193,6 +1220,7 @@ class DockedPanel:
             pad = (self.OVERLAP + 16, 16) if self._side == "right" else (16, 16)
             for frame in self._padded:
                 frame.pack_configure(padx=pad)
+            self._redraw_arrows()
 
     # ---- user actions -------------------------------------------------------
     def _profile_from_sliders(self) -> Profile:
@@ -1245,10 +1273,20 @@ class DockedPanel:
         self._flash("Tüm modlar varsayılana döndü.", "accent")
         log.info("all modes reset to default")
 
-    def hide_by_user(self) -> None:
-        self.user_hidden = True
-        with self._sync_lock:
-            self._park()
+    def collapse(self) -> None:
+        self._set_collapsed(True)
+
+    def expand(self) -> None:
+        self._set_collapsed(False)
+
+    def _set_collapsed(self, collapsed: bool) -> None:
+        if collapsed == self.collapsed:
+            return
+        self.collapsed = collapsed
+        self._show_view()
+        self._sync(self.eyecare)  # resize now, not at the next tick
+        self.config.panel_collapsed = collapsed
+        self._schedule_save()     # remembered across restarts
 
     def quit(self) -> None:
         if self._save_job is not None:
@@ -1313,8 +1351,6 @@ class DockedPanel:
                 self.follower.follow(pid.value)
                 log.info("Eye-CareU window found: %r (%s)", window_title(found),
                          "visible" if user32.IsWindowVisible(found) else "in the tray")
-        if hwnd is None or user32.IsIconic(hwnd) or not user32.IsWindowVisible(hwnd):
-            self.user_hidden = False  # "–" only lasts until Eye-CareU is closed/minimised
         self._sync(hwnd)
         if self.visible and user32.GetForegroundWindow() == hwnd:
             self._stack_above(hwnd)  # come forward together with Eye-CareU
@@ -1373,13 +1409,16 @@ class DockedPanel:
     def _sync_locked(self, hwnd) -> tuple[int, int, str] | None:
         showing = bool(hwnd) and bool(user32.IsWindowVisible(hwnd)) and not user32.IsIconic(hwnd)
         self.engine.set_eyecare_open(showing)
-        if not showing or self.user_hidden:
+        if not showing:
             self._park()
             return None
         left, top, right, bottom = visible_rect(hwnd)
         window = (left, top + self.TOP_INSET, right, bottom)
         x, y, w, h, side = dock_position(window, work_area(hwnd), self.WIDTH, self.min_height, self.OVERLAP)
         self._side = side
+        if self.collapsed:  # just the arrow tab, on the same side the panel would open
+            y, h = window[1] + self.TAB_TOP, self.TAB_H
+            x, w = (right - self.OVERLAP, self.OVERLAP + self.TAB_W) if side == "right" else (left - self.TAB_W, self.TAB_W)
         self._place(x, y, w, h)
         if not self.visible:
             self.visible = True
@@ -1415,7 +1454,7 @@ class DockedPanel:
 
     def _apply_shape(self, w: int, h: int, side: str) -> None:
         """Round the outer corners like Eye-CareU's; keep the side that meets it square."""
-        r = self.RADIUS
+        r = self.TAB_RADIUS if h == self.TAB_H else self.RADIUS
         region = gdi32.CreateRoundRectRgn(0, 0, w + 1, h + 1, 2 * r, 2 * r)
         if side == "right":
             square = gdi32.CreateRectRgn(0, 0, r + 1, h)
@@ -1453,15 +1492,34 @@ def run_headless(engine: ModeEngine) -> None:
         pass
 
 
+FROZEN = bool(getattr(sys, "frozen", False))  # True inside CinemaGamma.exe (PyInstaller build)
+
+
+def launch_command(windowless: bool = False) -> list[str]:
+    """The command that starts this program: the exe itself, or Python running this script."""
+    if FROZEN:
+        return [sys.executable]
+    interpreter = Path(sys.executable)
+    pythonw = interpreter.with_name("pythonw.exe")
+    if windowless and pythonw.exists():
+        interpreter = pythonw
+    return [str(interpreter), str(Path(__file__).resolve())]
+
+
+def app_folder() -> Path:
+    """Folder of the exe (installed build) or of this script."""
+    return Path(sys.executable if FROZEN else __file__).resolve().parent
+
+
 def restart_self() -> None:
-    """Start a fresh copy of this script (same interpreter and arguments) once we are cleaned up."""
+    """Start a fresh copy of this program (same interpreter and arguments) once we are cleaned up."""
     global _mutex_handle
     if _mutex_handle:
         kernel32.CloseHandle(_mutex_handle)  # let the new copy take the single-instance mutex
         _mutex_handle = None
-    args = [sys.executable, str(Path(__file__).resolve())]
+    args = launch_command()
     args += [a for a in sys.argv[1:] if a != "--after-restart"] + ["--after-restart"]
-    subprocess.Popen(args, cwd=str(Path(__file__).resolve().parent), close_fds=True,
+    subprocess.Popen(args, cwd=str(app_folder()), close_fds=True,
                      creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
     log.info("restarted")
 
@@ -1478,22 +1536,20 @@ def say(text: str) -> None:
 
 
 def install_startup() -> None:
-    """Startup-folder shortcut (pythonw: no console window), then start the app now."""
-    pythonw = Path(sys.executable).with_name("pythonw.exe")
-    interpreter = pythonw if pythonw.exists() else Path(sys.executable)
-    script = Path(__file__).resolve()
-    script_arg = f'"{script}"'
+    """Startup-folder shortcut (exe or pythonw: no console window), then start the app now."""
+    target, *arguments = launch_command(windowless=True)
+    quoted_arguments = " ".join(f'"{a}"' for a in arguments)  # empty for the exe
     command = (
         f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({_ps_quote(str(STARTUP_LINK))}); "
-        f"$s.TargetPath = {_ps_quote(str(interpreter))}; "
-        f"$s.Arguments = {_ps_quote(script_arg)}; "
-        f"$s.WorkingDirectory = {_ps_quote(str(script.parent))}; "
+        f"$s.TargetPath = {_ps_quote(target)}; "
+        f"$s.Arguments = {_ps_quote(quoted_arguments)}; "
+        f"$s.WorkingDirectory = {_ps_quote(str(app_folder()))}; "
         "$s.Save()"
     )
     STARTUP_LINK.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command], check=True)
     subprocess.Popen(
-        [str(interpreter), str(script)], cwd=str(script.parent), close_fds=True,
+        [target, *arguments], cwd=str(app_folder()), close_fds=True,
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
     )
     say(f"Tamam: Windows açılışında otomatik başlayacak ({STARTUP_LINK}).")
