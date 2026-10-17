@@ -156,33 +156,41 @@ root.update()
 assert "reset_all" in engine.calls and engine.profiles == {}
 print("reset buttons ok (incl. injected clicks)")
 
-# the drawn "–" icon hides the panel (injected click)
-icons = [w for w in root.winfo_children()[0].winfo_children()[0].winfo_children()[0].winfo_children()
-         if w.winfo_class() == "Canvas"]
-assert len(icons) == 2, icons
-icons[1].event_generate("<ButtonRelease-1>", x=10, y=10)
+# no "–" / "×" any more: one arrow folds the panel into a small tab stuck to Eye-CareU's edge
+assert [w for w in root.winfo_children() if w.winfo_class() == "Canvas"] == [panel.tab_view]
+calls.clear()
+panel.fold_button.event_generate("<ButtonRelease-1>", x=10, y=10)  # injected click
 root.update()
-assert panel.user_hidden and not panel.visible
-panel.user_hidden = False
+tab = (406, 113, panel.OVERLAP + panel.TAB_W, panel.TAB_H)
+assert panel.collapsed and panel.visible and panel._geometry == tab, panel._geometry
+assert ("roundrect", 0, 0, tab[2] + 1, tab[3] + 1, 20, 20) in calls, "tab corners rounded (r=10)"
+assert panel.tab_view.winfo_ismapped() and not panel.full_view.winfo_ismapped()
+assert panel.config.panel_collapsed is True
+rect["value"] = (300, 200, 620, 630)  # the tab follows Eye-CareU like the panel does
+panel._on_win_event(cg.EVENT_OBJECT_LOCATIONCHANGE, EYECARE)
+assert panel._geometry[:2] == (606, 213)
+rect["value"] = (100, 100, 420, 530)
 panel._follow_eyecare()
-assert panel.visible
-print("drawn window-control icons ok")
+calls.clear()
+panel.tab_view.event_generate("<ButtonRelease-1>", x=-3, y=5)  # release outside: nothing happens
+assert panel.collapsed
+panel.tab_view.event_generate("<ButtonRelease-1>", x=20, y=20)  # the arrow opens the panel again
+root.update()
+assert not panel.collapsed and panel._geometry == (406, 101, W, height)
+assert panel.full_view.winfo_ismapped() and not panel.tab_view.winfo_ismapped()
+assert ("roundrect", 0, 0, W + 1, height + 1, 28, 28) in calls
+root.after(900, root.quit)
+root.mainloop()
+assert panel.config.panel_collapsed is False and "save" in engine.calls, "folded state is saved"
+print("fold arrow / tab ok")
 
-# minimise -> park; "–" stays parked until Eye-CareU is closed/minimised; slow polling while closed
+# minimise -> park (panel or tab), back when Eye-CareU is restored
 state["iconic"] = 1
 panel._follow_eyecare()
 assert not panel.visible and panel._geometry == parked and engine.open_states[-1] is False
 state["iconic"] = 0
 panel._follow_eyecare()
 assert panel.visible and panel._geometry[:2] == (406, 101)
-panel.hide_by_user()
-panel._follow_eyecare()
-assert not panel.visible, "'–' must keep the panel hidden"
-state["iconic"] = 1
-panel._follow_eyecare()
-state["iconic"] = 0
-panel._follow_eyecare()
-assert panel.visible, "panel must come back after Eye-CareU is reopened"
 print("show/hide ok")
 
 # Eye-CareU near the right screen edge -> left side, no overlap, other corners rounded, padding swaps

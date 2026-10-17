@@ -360,4 +360,16 @@ assert not cg.stop_requested()
 cg.STOP_PATH.write_text("")
 assert cg.stop_requested() and not cg.STOP_PATH.exists() and not cg.stop_requested()
 print("stop file ok")
+
+# launch command: Python + script while developing, the exe itself in the installed build
+script_cmd = cg.launch_command()
+assert script_cmd[-1].endswith("cinema_gamma.py") and len(script_cmd) == 2
+assert cg.app_folder() == cg.Path(cg.__file__).resolve().parent
+cg.FROZEN = True
+try:
+    assert cg.launch_command() == [cg.sys.executable] == cg.launch_command(windowless=True)
+    assert cg.app_folder() == cg.Path(cg.sys.executable).resolve().parent
+finally:
+    cg.FROZEN = False
+print("launch command (script / exe) ok")
 print("ALL TESTS PASSED")
