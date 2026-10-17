@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Runtime files (they live in %LOCALAPPDATA%\CinemaGamma, but keep stray copies out)
+config.json
+*.log
+stop
+restart
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
