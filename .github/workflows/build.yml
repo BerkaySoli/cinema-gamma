@@ -1,0 +1,90 @@
+# Tests, then builds CinemaGamma.exe (PyInstaller) and the setup wizard (Inno Setup) on Windows.
+# Every run keeps the installer as a downloadable artifact; a published release also gets it attached.
+name: Build installer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write  # attach the installer to releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tests
+        run: python tests/test_logic.py
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyinstaller==6.*"
+          choco install innosetup --no-progress -y
+
+      - name: Version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=0.0.0-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build CinemaGamma.exe
+        run: pyinstaller --noconfirm --windowed --name CinemaGamma --icon installer/icon.ico cinema_gamma.py
+
+      - name: Smoke test the exe (starts, logs, stops through its stop file)
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\CinemaGamma"
+          $proc = Start-Process dist\CinemaGamma\CinemaGamma.exe -PassThru
+          Start-Sleep -Seconds 8
+          $log = Get-Content "$app\cinema_gamma.log" -Raw
+          Write-Output $log
+          if ($proc.HasExited) { throw "the exe exited on its own" }
+          if ($log -notmatch "engine started") { throw "the engine did not start" }
+          if ($log -match "Traceback|ERROR") { throw "errors in the log" }
+          New-Item -ItemType File -Force "$app\stop" | Out-Null
+          if (-not $proc.WaitForExit(15000)) { throw "the exe ignored the stop file" }
+          Remove-Item -Recurse -Force $app
+
+      - name: Build the setup wizard
+        shell: pwsh
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" installer\CinemaGamma.iss'
+
+      - name: Smoke test the installer (silent install, Startup shortcut, uninstall)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\CinemaGamma-Setup-*.exe).FullName
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\Cinema Gamma"
+          $startup = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Cinema Gamma.lnk"
+          if (-not (Test-Path "$dir\CinemaGamma.exe")) { throw "exe not installed" }
+          if (-not (Test-Path $startup)) { throw "Startup shortcut missing" }
+          Start-Process "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES' -Wait
+          foreach ($i in 1..30) { if (-not (Test-Path "$dir\CinemaGamma.exe")) { break }; Start-Sleep 1 }
+          if (Test-Path "$dir\CinemaGamma.exe") { throw "uninstall left the exe" }
+          if (Test-Path $startup) { throw "uninstall left the Startup shortcut" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CinemaGamma-Setup-${{ env.VERSION }}
+          path: dist/CinemaGamma-Setup-*.exe
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist\CinemaGamma-Setup-*.exe).FullName --clobber
