@@ -25,14 +25,20 @@ Kurulum dosyası kod imzalı olmadığı için Windows SmartScreen "bilinmeyen y
 
 1. Eye-CareU'yu açıp bir renk modu seçin, örneğin **Cinema**.
 2. **Mod Ayarları** panelindeki kaydırıcıları oynatın. Ayar yalnızca o mod için kaydedilir.
+   **Basic** sekmesinde gamma, parlaklık ve kontrast; **Advanced** sekmesinde bunlara ek olarak renk sıcaklığı ile kırmızı, yeşil ve mavi ince ayarı var.
 3. Mod değiştirin. Her mod kendi ayarını yükler; hiç ayarlamadığınız modlarda **varsayılan** yazar.
 
 Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; karenin üzerindeki ok paneli yeniden açar. Panel açık mı kapalı mı olduğunu hatırlar.
 
 ![Eye-CareU'nun kenarında oklu küçük kareye katlanmış panel](docs/preview-folded.png)
 
+![Basic ve Advanced sekmeleri](docs/panel-tabs.png)
+
 | Düğme | Ne yapar |
 |---|---|
+| Basic / Advanced | İki sekme |
+| Sıcaklık | Renk sıcaklığı (4000–9000 K; 6500 K nötr) |
+| Kırmızı / Yeşil / Mavi | Kanal başına ince ayar |
 | Bu modu sıfırla | Geçerli modu varsayılana döndürür |
 | Tüm modları sıfırla | Bütün modları varsayılana döndürür |
 | ‹ / › | Paneli katlar / yeniden açar |
@@ -41,7 +47,7 @@ Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; ka
 
 - **Eye-CareU'ya yapışır.** Panel, Eye-CareU penceresine boşluksuz yapışır; aynı renkleri ve aynı yuvarlak köşeleri kullanır. Eye-CareU ekranın sağ kenarına yakınsa panel sol tarafa geçer.
 - **Sürekli kontrol etmeden takip eder.** Paneli pencere olayları yönetir. Eye-CareU hareket ettikten sonra 10 saniye boyunca sıkı takip eder, sonra uykuya geçer; hiçbir şey hareket etmezken işlemci kullanmaz.
-- **Her moda ayrı ayar.** Gamma (0,70–1,60), parlaklık (−0,30 ile +0,30 arası) ve kontrast (0,50–1,50); Standard, Cinema, Game, ePaper, Care Mode ve diğer tüm modlar için ayrı saklanır. Hiç dokunmadığınız modlar varsayılanda kalır.
+- **Her moda ayrı ayar.** Gamma (0,70–1,60), parlaklık (−0,30 ile +0,30 arası), kontrast (0,50–1,50), renk sıcaklığı (4000–9000 K) ve kırmızı, yeşil, mavi kazancı (0,50–1,00); Standard, Cinema, Game, ePaper, Care Mode ve diğer tüm modlar için ayrı saklanır. Hiç dokunmadığınız modlar varsayılanda kalır.
 - **Anında geçiş.** Mod değişikliği Eye-CareU'nun günlüğüne düşer ve panel bunu yaklaşık 0,2 saniyede yakalar. Monitörün kendi tuşlarıyla yapılan değişiklikleri de monitörden DDC/CI ile doğrudan okuyarak yakalar.
 - **Güvenli.** Monitörden yalnızca okur, monitör ayarlarını asla değiştirmez. Eğri yalnızca BenQ'nun bağlı olduğu çıkışa uygulanır. Özel ayarı olmayan bir moda geçtiğinizde ve program kapandığında orijinal eğri geri gelir.
 

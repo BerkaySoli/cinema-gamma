@@ -34,6 +34,7 @@ import atexit
 import ctypes
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -104,9 +105,14 @@ class Profile:
     gamma: float = 1.0       # > 1 lifts mid-tones (same direction as NVIDIA's slider)
     brightness: float = 0.0  # -0.30 ... +0.30, added to every level
     contrast: float = 1.0    # 0.50 ... 1.50, stretches around mid-grey
+    temperature: float = 6500.0  # white point in kelvin; 6500 K = neutral (sRGB white)
+    red: float = 1.0         # 0.50 ... 1.00, per-channel gain (fine tuning)
+    green: float = 1.0
+    blue: float = 1.0
 
     def is_default(self) -> bool:
-        return abs(self.gamma - 1) < 0.005 and abs(self.brightness) < 0.005 and abs(self.contrast - 1) < 0.005
+        return all(abs(getattr(self, f.name) - f.default) < (25 if f.name == "temperature" else 0.005)
+                   for f in fields(self))
 
 
 DEFAULT_PROFILE = Profile()
@@ -135,6 +141,7 @@ class Config:
     profiles: dict[str, Profile] = field(default_factory=dict)  # mode value -> its setting
     mode_names: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODE_NAMES))
     panel_collapsed: bool = False    # the panel is folded into the small arrow tab
+    panel_tab: str = "basic"         # "basic" or "advanced"
 
     @classmethod
     def load(cls) -> "Config":
@@ -149,7 +156,7 @@ class Config:
         if not isinstance(raw, dict):
             return config
         for name in ("vcp_code", "monitor_tag", "eyecare_match", "ddc_check_open_s", "ddc_check_closed_s",
-                     "panel_collapsed"):
+                     "panel_collapsed", "panel_tab"):
             if name in raw:
                 try:
                     setattr(config, name, type(getattr(config, name))(raw[name]))
@@ -520,16 +527,46 @@ class DdcMonitor:
 # ---------------------------------------------------------------------------
 # Gamma ramp
 # ---------------------------------------------------------------------------
+NEUTRAL_KELVIN = 6500.0
+
+
+def _blackbody_rgb(kelvin: float) -> tuple[float, float, float]:
+    """Approximate colour of a black body (Tanner Helland's fit), each channel 0..1."""
+    t = min(max(kelvin, 1000.0), 40000.0) / 100
+    if t <= 66:
+        red = 255.0
+        green = 99.4708025861 * math.log(t) - 161.1195681661
+    else:
+        red = 329.698727446 * (t - 60) ** -0.1332047592
+        green = 288.1221695283 * (t - 60) ** -0.0755148492
+    if t >= 66:
+        blue = 255.0
+    elif t <= 19:
+        blue = 0.0
+    else:
+        blue = 138.5177312231 * math.log(t - 10) - 305.0447927307
+    return tuple(min(max(c, 0.0), 255.0) / 255 for c in (red, green, blue))
+
+
+def white_point(kelvin: float) -> tuple[float, float, float]:
+    """Per-channel gains that move white from 6500 K to `kelvin`; never above 1 (no clipping)."""
+    target, neutral = _blackbody_rgb(kelvin), _blackbody_rgb(NEUTRAL_KELVIN)
+    gains = [t / n if n else 0.0 for t, n in zip(target, neutral)]
+    top = max(gains) or 1.0
+    return tuple(g / top for g in gains)
+
+
 def build_ramp(profile: Profile) -> GammaRamp:
-    """256-entry curve per channel: contrast and brightness first, then gamma."""
+    """256-entry curve per channel: contrast and brightness first, then gamma, then the
+    channel's white-point and fine-tuning gain."""
     ramp = GammaRamp()
     gamma = max(profile.gamma, 0.1)
+    gains = [w * g for w, g in zip(white_point(profile.temperature), (profile.red, profile.green, profile.blue))]
     for i in range(256):
         level = (i / 255 - 0.5) * profile.contrast + 0.5 + profile.brightness
         level = min(max(level, 0.0), 1.0) ** (1.0 / gamma)
-        value = round(level * 65535)
-        for channel in ramp:
-            channel[i] = value
+        for channel, gain in zip(ramp, gains):
+            channel[i] = round(min(max(level * gain, 0.0), 1.0) * 65535)
     return ramp
 
 
@@ -1004,11 +1041,26 @@ class EyeCareFollower(threading.Thread):
 # ---------------------------------------------------------------------------
 # Docked panel (Tk, main thread)
 # ---------------------------------------------------------------------------
-SLIDERS = (
+BASIC_SLIDERS = (
     ("gamma", "Gamma", 0.70, 1.60),
     ("brightness", "Parlaklık", -0.30, 0.30),
     ("contrast", "Kontrast", 0.50, 1.50),
 )
+ADVANCED_SLIDERS = BASIC_SLIDERS + (
+    ("temperature", "Sıcaklık", 4000.0, 9000.0),
+    ("red", "Kırmızı", 0.50, 1.00),
+    ("green", "Yeşil", 0.50, 1.00),
+    ("blue", "Mavi", 0.50, 1.00),
+)
+PANEL_TABS = (("basic", "Basic"), ("advanced", "Advanced"))  # same words as Eye-CareU's own tabs
+
+
+def format_setting(key: str, value: float) -> str:
+    return f"{value:.0f} K" if key == "temperature" else f"{value:.2f}"
+
+
+def round_setting(key: str, value: float) -> float:
+    return round(value / 50) * 50.0 if key == "temperature" else round(value, 2)
 
 
 class DockedPanel:
@@ -1065,7 +1117,14 @@ class DockedPanel:
         # "hiding" means parking it off-screen again. After creation it is moved
         # only with SetWindowPos (see _place), never through Tk's geometry code.
         root.update_idletasks()
-        self.min_height = self.full_view.winfo_reqheight()  # also right when starting folded
+        heights = []
+        for name in self.tab_frames:  # tall enough for either tab, also when starting folded
+            self.tab_frames[name].pack(fill="x", before=self.buttons)
+            root.update_idletasks()
+            heights.append(self.full_view.winfo_reqheight())
+            self.tab_frames[name].pack_forget()
+        self.tab_frames[self.tab].pack(fill="x", before=self.buttons)
+        self.min_height = max(heights)
         previous_foreground = user32.GetForegroundWindow()
         width = self.WIDTH + self.OVERLAP
         root.geometry(f"{width}x{self.min_height}+{OFFSCREEN}+{OFFSCREEN}")
@@ -1104,19 +1163,27 @@ class DockedPanel:
         tk.Label(header_in, text="Mod Ayarları", bg=c["header"], fg=c["text"],  # on Eye-CareU's "Settings" line
                  font=("Segoe UI Semibold", 11)).place(x=0, rely=1.0, y=-6, anchor="sw")
 
+        # Tab row, like Eye-CareU's "General | Advanced | Help" right next to it.
         tabs = tk.Frame(full, bg=c["tabs"], height=self.TABS_H)
         tabs.pack(fill="x")
         tabs.pack_propagate(False)
         tabs_in = tk.Frame(tabs, bg=c["tabs"])
         tabs_in.pack(fill="both", expand=True)
-        self.status = tk.StringVar(value="Monitör okunuyor…")
-        self.status_label = tk.Label(tabs_in, textvariable=self.status, bg=c["tabs"], fg=c["tab"],
-                                     font=("Segoe UI", 10), anchor="w", justify="left",
-                                     wraplength=self.WIDTH - 32)
-        self.status_label.place(x=0, rely=0.5, anchor="w")
+        self.tab_labels: dict[str, object] = {}
+        for index, (name, text) in enumerate(PANEL_TABS):
+            label = self._button(tabs_in, text, lambda n=name: self.select_tab(n), bg=c["tabs"], fg=c["muted"],
+                                 hover=c["tabs"], hover_fg=c["text"], font=("Segoe UI", 10), padx=4, pady=2)
+            label.place(relx=0.25 + 0.5 * index, rely=0.5, anchor="center")
+            self.tab_labels[name] = label
+        tk.Frame(tabs_in, bg=c["muted"], width=1, height=12).place(relx=0.5, rely=0.5, anchor="center")
 
         body = tk.Frame(full, bg=c["content"])
         body.pack(fill="both", expand=True)
+        self.status = tk.StringVar(value="Monitör okunuyor…")
+        self.status_label = tk.Label(body, textvariable=self.status, bg=c["content"], fg=c["tab"],
+                                     font=("Segoe UI", 10), anchor="w", justify="left",
+                                     wraplength=self.WIDTH - 32)
+        self.status_label.pack(fill="x", pady=(9, 0))
 
         style = ttk.Style(root)
         style.theme_use("clam")  # lets the slider knob have its own colour
@@ -1126,30 +1193,38 @@ class DockedPanel:
         style.map("Panel.Horizontal.TScale",
                   background=[("disabled", c["line"]), ("active", c["accent_hover"])])
 
-        self.slider_vars: dict[str, object] = {}
-        self.value_labels: dict[str, object] = {}
+        # Both tabs edit the same setting: their sliders share one variable per value.
+        self.slider_vars: dict[str, object] = {
+            key: tk.DoubleVar(value=getattr(DEFAULT_PROFILE, key)) for key, *_ in ADVANCED_SLIDERS}
+        self.value_labels: dict[str, list] = {key: [] for key in self.slider_vars}
         self.scales: list = []
-        for index, (key, label, low, high) in enumerate(SLIDERS):
-            row = tk.Frame(body, bg=c["content"])
-            row.pack(fill="x", pady=(12 if index == 0 else 9, 0))
+
+        self.tab_frames = {"basic": tk.Frame(body, bg=c["content"]), "advanced": tk.Frame(body, bg=c["content"])}
+        for index, (key, label, low, high) in enumerate(BASIC_SLIDERS):  # roomy, like Eye-CareU's rows
+            frame = self.tab_frames["basic"]
+            row = tk.Frame(frame, bg=c["content"])
+            row.pack(fill="x", pady=(8 if index == 0 else 9, 0))
             tk.Label(row, text=label, bg=c["content"], fg=c["label"], font=("Segoe UI", 10)).pack(side="left")
-            self.value_labels[key] = tk.Label(row, bg=c["content"], fg=c["text"], font=("Segoe UI", 10))
-            self.value_labels[key].pack(side="right")
-            var = tk.DoubleVar(value=getattr(DEFAULT_PROFILE, key))
-            self.slider_vars[key] = var
-            scale = ttk.Scale(body, from_=low, to=high, orient="horizontal", variable=var, takefocus=False,
-                              style="Panel.Horizontal.TScale", command=self._on_slider)
-            scale.pack(fill="x", pady=(6, 9))
-            self.scales.append(scale)
-            tk.Frame(body, bg=c["line"], height=1).pack(fill="x")  # row separator, like Eye-CareU's
+            self._value_label(row, key).pack(side="right")
+            self._scale(frame, key, low, high).pack(fill="x", pady=(6, 9))
+            tk.Frame(frame, bg=c["line"], height=1).pack(fill="x")  # row separator, like Eye-CareU's
+        for index, (key, label, low, high) in enumerate(ADVANCED_SLIDERS):  # compact: one line per value
+            row = tk.Frame(self.tab_frames["advanced"], bg=c["content"])
+            row.pack(fill="x", pady=(8 if index == 0 else 0, 0))
+            tk.Label(row, text=label, bg=c["content"], fg=c["label"], font=("Segoe UI", 9), width=8,
+                     anchor="w").pack(side="left")
+            self._value_label(row, key, width=7).pack(side="right")
+            self._scale(row, key, low, high).pack(side="left", fill="x", expand=True, padx=(4, 6), pady=6)
         self._sync_value_labels()
 
-        self._button(body, "Bu modu sıfırla", self.reset, bg=c["button"], fg=c["text"],
-                     hover=c["button_hover"], pady=7).pack(fill="x", pady=(14, 6))
-        self._button(body, "Tüm modları sıfırla", self.reset_all, bg=c["content"], fg=c["muted"],
+        self.buttons = tk.Frame(body, bg=c["content"])
+        self.buttons.pack(fill="x", side="bottom")
+        self._button(self.buttons, "Bu modu sıfırla", self.reset, bg=c["button"], fg=c["text"],
+                     hover=c["button_hover"], pady=7).pack(fill="x", pady=(12, 6))
+        self._button(self.buttons, "Tüm modları sıfırla", self.reset_all, bg=c["content"], fg=c["muted"],
                      hover=c["content"], hover_fg=c["text"], font=("Segoe UI", 9), padx=0, pady=0).pack(anchor="w")
-        tk.Label(body, text="Her mod kendi ayarını hatırlar.", bg=c["content"], fg=c["muted"],
-                 font=("Segoe UI", 9), anchor="w").pack(fill="x", pady=(6, 0))
+        self.tab = ""
+        self.select_tab(self.config.panel_tab if self.config.panel_tab in self.tab_frames else "basic", save=False)
 
         self._padded = (header_in, tabs_in, body)
         self._show_view()
@@ -1172,6 +1247,34 @@ class DockedPanel:
         button.bind("<Leave>", lambda _event: button.configure(bg=bg, fg=fg))
         button.bind("<ButtonRelease-1>", on_release)
         return button
+
+    def _value_label(self, parent, key: str, width: int = 0):
+        label = self.tk.Label(parent, bg=self.COLORS["content"], fg=self.COLORS["text"], font=("Segoe UI", 10),
+                              width=width, anchor="e")
+        self.value_labels[key].append(label)
+        return label
+
+    def _scale(self, parent, key: str, low: float, high: float):
+        scale = self.ttk.Scale(parent, from_=low, to=high, orient="horizontal", variable=self.slider_vars[key],
+                               takefocus=False, style="Panel.Horizontal.TScale", command=self._on_slider)
+        self.scales.append(scale)
+        return scale
+
+    def select_tab(self, name: str, save: bool = True) -> None:
+        if name == self.tab:
+            return
+        self.tab = name
+        for tab_name, frame in self.tab_frames.items():
+            frame.pack_forget()
+            selected = tab_name == name
+            label = self.tab_labels[tab_name]
+            label.configure(fg=self.COLORS["tab"] if selected else self.COLORS["muted"])
+            label.bind("<Leave>", lambda _e, lb=label, sel=selected: lb.configure(
+                fg=self.COLORS["tab"] if sel else self.COLORS["muted"]))
+        self.tab_frames[name].pack(fill="x", before=self.buttons)
+        if save:
+            self.config.panel_tab = name
+            self._schedule_save()
 
     def _bind_click(self, canvas, command) -> None:
         """Fire on mouse-button release over the canvas (works for injected clicks too); the
@@ -1224,11 +1327,12 @@ class DockedPanel:
 
     # ---- user actions -------------------------------------------------------
     def _profile_from_sliders(self) -> Profile:
-        return Profile(**{key: round(var.get(), 2) for key, var in self.slider_vars.items()})
+        return Profile(**{key: round_setting(key, var.get()) for key, var in self.slider_vars.items()})
 
     def _sync_value_labels(self) -> None:
         for key, var in self.slider_vars.items():
-            self.value_labels[key].configure(text=f"{var.get():.2f}")
+            for label in self.value_labels[key]:
+                label.configure(text=format_setting(key, round_setting(key, var.get())))
 
     def _load_sliders(self, profile: Profile) -> None:
         for key, var in self.slider_vars.items():
@@ -1372,7 +1476,7 @@ class DockedPanel:
         }
         text, color = messages.get(s.state, messages["starting"])
         if s.state == "custom" and not s.curve_ok:
-            text, color = "Windows bu ayarı reddetti; parlaklığı azalt.", "warn"
+            text, color = "Windows bu ayarı reddetti; ayarı biraz geri çek.", "warn"
         self.status.set(text)
         self.status_label.configure(fg=self.COLORS[color])
 

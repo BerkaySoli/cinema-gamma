@@ -25,17 +25,23 @@ The installer is not code-signed, so Windows SmartScreen may say the publisher i
 
 1. Open Eye-CareU and choose a colour mode, for example **Cinema**.
 2. Move the sliders in the **Mod Ayarları** panel. The setting is saved for that mode only.
+   **Basic** has gamma, brightness and contrast. **Advanced** adds the colour temperature and red, green and blue fine-tuning.
 3. Switch modes. Each mode loads its own setting. A mode you never adjusted shows **varsayılan** (default).
 
 The arrow at the top right folds the panel into a small tab on Eye-CareU's edge; the tab's arrow opens it again. The panel remembers whether it was open.
 
 ![The panel folded into a small arrow tab on Eye-CareU's edge](docs/preview-folded.png)
 
+![The Basic and Advanced tabs](docs/panel-tabs.png)
+
 The panel's labels are in Turkish:
 
 | Panel label | Meaning |
 |---|---|
+| Basic / Advanced | The two tabs |
 | Gamma / Parlaklık / Kontrast | Gamma / brightness / contrast |
+| Sıcaklık | Colour temperature (4000–9000 K; 6500 K is neutral) |
+| Kırmızı / Yeşil / Mavi | Red / green / blue gain |
 | özel ayar | This mode has a custom setting |
 | varsayılan | This mode uses the default |
 | Bu modu sıfırla | Reset this mode |
@@ -46,7 +52,7 @@ The panel's labels are in Turkish:
 
 - **Docks to Eye-CareU.** The panel sits flush against the Eye-CareU window, in its colours and with matching rounded corners. When Eye-CareU is near the right edge of the screen, the panel moves to its left side.
 - **Follows without polling.** Window events drive the panel. After Eye-CareU moves, the panel tracks it closely for 10 seconds, then goes idle, so it uses no CPU while nothing moves.
-- **One setting per mode.** Gamma (0.70–1.60), brightness (−0.30 to +0.30) and contrast (0.50–1.50) are stored separately for Standard, Cinema, Game, ePaper, Care Mode and any other mode. Modes you never touch stay at the default.
+- **One setting per mode.** Gamma (0.70–1.60), brightness (−0.30 to +0.30), contrast (0.50–1.50), colour temperature (4000–9000 K) and red, green and blue gains (0.50–1.00) are stored separately for Standard, Cinema, Game, ePaper, Care Mode and any other mode. Modes you never touch stay at the default.
 - **Instant switching.** Mode changes show up in Eye-CareU's log, and the panel picks them up in about 0.2 seconds. A direct DDC/CI read of the monitor also catches changes made with the monitor's own buttons.
 - **Safe.** It only reads from the monitor and never changes monitor settings. The curve is applied to the BenQ's output only. The original curve comes back when you switch to a mode with no custom setting, and when the program exits.
 
