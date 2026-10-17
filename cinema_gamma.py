@@ -17,14 +17,14 @@ How it works (Eye-CareU is closed source and has no plugin API):
     tight-follow mode for 10 s after the last move, then goes back to sleep.
 
 Usage
-  Baslat.cmd / Durdur.cmd              (next to this file) start / stop it with a double-click
-  python  cinema_gamma.py              run (the console shows the log)
+  CinemaGamma-Setup-x.y.z.exe          the setup wizard (GitHub releases): installs, starts with Windows
+  python  cinema_gamma.py              run from source (the console shows the log)
   pythonw cinema_gamma.py              run without a console window
   python  cinema_gamma.py --install    start automatically at Windows login (and start now)
   python  cinema_gamma.py --uninstall  remove the login shortcut
   python  cinema_gamma.py --no-panel   apply the saved settings only, without the panel
 
-Requirements: Windows 10/11, Python 3.9+ with Tk (default installer), no pip packages.
+Requirements: Windows 10/11. From source: Python 3.9+ with Tk (default installer), no pip packages.
 Files:        %LOCALAPPDATA%\CinemaGamma\config.json  and  cinema_gamma.log
 """
 from __future__ import annotations
@@ -56,7 +56,7 @@ LOCAL_APPDATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
 APP_DIR = LOCAL_APPDATA / "CinemaGamma"
 CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "cinema_gamma.log"
-STOP_PATH = APP_DIR / "stop"        # Durdur.cmd creates it: a running copy exits cleanly
+STOP_PATH = APP_DIR / "stop"        # the setup wizard creates it: a running copy exits cleanly
 RESTART_PATH = APP_DIR / "restart"  # after an update: a running copy restarts on the new code
 EYECARE_LOG_DIR = LOCAL_APPDATA / "BenQ" / "Eye-CareU" / "log"
 STARTUP_LINK = (
@@ -1311,7 +1311,7 @@ class DockedPanel:
         delay = self.TICK_OPEN_MS
         try:
             if stop_requested():
-                log.info("stop requested (Durdur.cmd)")
+                log.info("stop requested")
                 self.quit()
                 return
             if take_flag(RESTART_PATH):
