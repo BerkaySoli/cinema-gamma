@@ -29,6 +29,8 @@ Kurulum dosyası kod imzalı olmadığı için Windows SmartScreen "bilinmeyen y
 
 Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; karenin üzerindeki ok paneli yeniden açar. Panel açık mı kapalı mı olduğunu hatırlar.
 
+![Eye-CareU'nun kenarında oklu küçük kareye katlanmış panel](docs/preview-folded.png)
+
 | Düğme | Ne yapar |
 |---|---|
 | Bu modu sıfırla | Geçerli modu varsayılana döndürür |

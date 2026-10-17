@@ -29,6 +29,8 @@ The installer is not code-signed, so Windows SmartScreen may say the publisher i
 
 The arrow at the top right folds the panel into a small tab on Eye-CareU's edge; the tab's arrow opens it again. The panel remembers whether it was open.
 
+![The panel folded into a small arrow tab on Eye-CareU's edge](docs/preview-folded.png)
+
 The panel's labels are in Turkish:
 
 | Panel label | Meaning |
