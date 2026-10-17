@@ -224,10 +224,30 @@ assert not panel.visible
 assert panel._on_win_event(cg.EVENT_OBJECT_SHOW, 5555) is True and panel.eyecare == 5555
 print("instant following (WinEvents) ok")
 
+# Basic / Advanced tabs: Advanced adds temperature + RGB; both tabs edit the same values
+assert panel.tab == "basic" and panel.tab_frames["basic"].winfo_ismapped()
+panel.tab_labels["advanced"].event_generate("<ButtonRelease-1>", x=3, y=3)  # injected click
+root.update()
+assert panel.tab == "advanced" and panel.tab_frames["advanced"].winfo_ismapped()
+assert not panel.tab_frames["basic"].winfo_ismapped() and panel.config.panel_tab == "advanced"
+engine.status = cg.EngineStatus(state="custom", mode=50, name="Cinema")
+panel.mode = 50
+panel.slider_vars["temperature"].set(5230)
+panel.slider_vars["gamma"].set(1.1)
+panel._on_slider()
+assert engine.calls[-1] == ("profile", 50, P(gamma=1.1, temperature=5250.0)), engine.calls[-1]
+assert [lb.cget("text") for lb in panel.value_labels["gamma"]] == ["1.10", "1.10"], "shared between tabs"
+assert panel.value_labels["temperature"][0].cget("text") == "5250 K"
+panel.tab_labels["basic"].event_generate("<ButtonRelease-1>", x=3, y=3)
+root.update()
+assert panel.tab == "basic" and panel.config.panel_tab == "basic"
+print("Basic / Advanced tabs ok")
+
 # stop file -> clean exit
 state["visible"] = 1
 cg.STOP_PATH.write_text("")
 panel._tick()
 assert "stop" in engine.calls and not cg.STOP_PATH.exists()
 print("stop file ok")
+
 print("ALL PANEL TESTS PASSED")

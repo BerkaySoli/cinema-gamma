@@ -105,7 +105,8 @@ c.profiles["1063"] = P(gamma=0.9, contrast=1.1)
 c.mode_names["7"] = "Game"
 c.save()
 raw = json.loads(cg.CONFIG_PATH.read_text())
-assert raw["profiles"]["1063"] == {"gamma": 0.9, "brightness": 0.0, "contrast": 1.1}
+assert raw["profiles"]["1063"] == {"gamma": 0.9, "brightness": 0.0, "contrast": 1.1,
+                                  "temperature": 6500.0, "red": 1.0, "green": 1.0, "blue": 1.0}
 raw["junk"] = 1
 raw["ddc_check_open_s"] = "abc"  # bad value must not crash
 cg.CONFIG_PATH.write_text(json.dumps(raw))
@@ -372,4 +373,17 @@ try:
 finally:
     cg.FROZEN = False
 print("launch command (script / exe) ok")
+
+# colour temperature and RGB gains (Advanced tab)
+assert all(abs(g - 1) < 1e-9 for g in cg.white_point(6500)), "6500 K is neutral"
+warm, cool = cg.white_point(4500), cg.white_point(8500)
+assert warm[0] == 1 and warm[2] < warm[1] < 1, warm   # warmer: less blue, a bit less green
+assert cool[2] == 1 and cool[0] < 1, cool               # cooler: less red
+assert max(cg.white_point(4000)) == 1 and min(cg.white_point(4000)) > 0.5
+ramp = cg.build_ramp(P(temperature=4500))
+assert ramp[0][255] == 65535 and ramp[2][255] < ramp[1][255] < 65535 and ramp[2][128] < ramp[0][128]
+ramp = cg.build_ramp(P(red=0.8))
+assert ramp[0][255] == round(0.8 * 65535) and ramp[1][255] == ramp[2][255] == 65535
+assert not P(temperature=5000).is_default() and P(temperature=6510).is_default() and not P(blue=0.9).is_default()
+print("colour temperature + RGB gains ok")
 print("ALL TESTS PASSED")
