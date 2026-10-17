@@ -4,7 +4,7 @@
 
 [Türkçe](README.tr.md) · [Download](../../releases/latest)
 
-![The Mod Ayarları panel docked to the right of BenQ Eye-CareU](docs/preview.png)
+![The Mod Ayarları panel docked to the right of BenQ Eye-CareU](docs/panel-docked.png)
 
 The BenQ GW2790C has no gamma or contrast control in its picture modes, and its Cinema mode is quite dark. GPU colour settings (NVIDIA, AMD, Intel) can fix that, but they apply to every mode. Cinema Gamma gives each Eye-CareU colour mode its own curve and switches it as soon as you change modes.
 
@@ -30,7 +30,7 @@ The installer is not code-signed, so Windows SmartScreen may say the publisher i
 
 The arrow at the top right folds the panel into a small tab on Eye-CareU's edge; the tab's arrow opens it again. The panel remembers whether it was open.
 
-![The panel folded into a small arrow tab on Eye-CareU's edge](docs/preview-folded.png)
+![The panel folded into a small arrow tab on Eye-CareU's edge](docs/panel-folded.png)
 
 ![The Basic and Advanced tabs](docs/panel-tabs.png)
 
