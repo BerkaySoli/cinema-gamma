@@ -1388,6 +1388,10 @@ class DockedPanel:
         # Under pythonw there is no console, so Tk would swallow callback errors silently.
         root.report_callback_exception = lambda *exc: log.error("panel callback failed", exc_info=exc)
         root.title("Cinema Gamma")
+        # Tk sizes fonts by the *primary* screen's scale, so scaling the laptop to 125 % would
+        # make the panel taller than Eye-CareU on the BenQ. Our layout is in 100 % pixels:
+        # pin Tk to 96 dpi (1 pt = 96/72 px) so other screens' scale never changes it.
+        root.tk.call("tk", "scaling", 96 / 72)
         root.overrideredirect(True)  # no title bar: it reads as part of Eye-CareU
         self._build()
         self._update_padding()
@@ -1397,11 +1401,10 @@ class DockedPanel:
         # only with SetWindowPos (see _place), never through Tk's geometry code.
         root.update_idletasks()
         heights = []
-        for name in self.tab_frames:  # tall enough for either tab, also when starting folded
-            self.tab_frames[name].pack(fill="x", before=self.buttons)
+        for name in self.tab_frames:  # tall enough for any tab, also when starting folded
+            self._show_tab_frame(name)
             root.update_idletasks()
             heights.append(self.full_view.winfo_reqheight())
-            self.tab_frames[name].pack_forget()
         current, self.tab = self.tab, ""
         self.select_tab(current, save=False)
         self.min_height = max(heights)
@@ -1553,16 +1556,22 @@ class DockedPanel:
             label.configure(fg=self.COLORS["tab"] if selected else self.COLORS["muted"])
             label.bind("<Leave>", lambda _e, lb=label, sel=selected: lb.configure(
                 fg=self.COLORS["tab"] if sel else self.COLORS["muted"]))
+        if name == "scale":
+            self._build_scale_tab()
+        self._show_tab_frame(name)
+        if save:
+            self.config.panel_tab = name
+            self._schedule_save()
+
+    def _show_tab_frame(self, name: str) -> None:
+        for frame in self.tab_frames.values():
+            frame.pack_forget()
         if name == "scale":  # the mode reset buttons don't apply to display scales
             self.buttons.pack_forget()
-            self._build_scale_tab()
             self.tab_frames[name].pack(fill="x")
         else:
             self.buttons.pack(fill="x", side="bottom")
             self.tab_frames[name].pack(fill="x", before=self.buttons)
-        if save:
-            self.config.panel_tab = name
-            self._schedule_save()
 
     # ---- Scale tab: temporary per-display scale -------------------------------
     def _build_scale_tab(self) -> None:
