@@ -8,7 +8,8 @@
   #define AppVersion "1.0.0"
 #endif
 #define AppExe "CinemaGamma.exe"
-#define AppMutex "Local\CinemaGamma"
+; The program and its watchdog each hold one; CheckForMutexes is true while either runs.
+#define AppMutex "Local\CinemaGamma,Local\CinemaGammaWatchdog"
 
 [Setup]
 AppId={{6D3F2B8A-41C7-4E59-9B0E-3C8D7A5F1E24}
@@ -68,7 +69,8 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchNow}"; WorkingDir: "{app}";
 
 [Code]
 { Ask a running copy (exe or the Python script) to quit through its stop file: it puts the
-  original screen colours back before exiting. Force-close the exe only if that fails. }
+  original screen colours and display scales back before exiting, and its watchdog follows.
+  Force-close the exe only if that fails. }
 procedure StopRunningCopy();
 var
   StopFile: String;
