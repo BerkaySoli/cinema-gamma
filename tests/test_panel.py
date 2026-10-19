@@ -77,6 +77,7 @@ W = panel.WIDTH + panel.OVERLAP
 parked = (cg.OFFSCREEN, cg.OFFSCREEN, W, panel.min_height)
 print("panel built, requested size:", W, "x", panel.min_height)
 assert panel.min_height <= 430, "content must fit in Eye-CareU's height"
+assert abs(float(root.tk.call("tk", "scaling")) - 96 / 72) < 0.01, "fonts pinned to 100 % (96 dpi)"
 assert panel._geometry == parked and not panel.visible, "panel must start parked off-screen"
 assert ("foreground", PREVIOUS_FOREGROUND) in calls, "focus must go back to the previous window"
 assert all(s.instate(["disabled"]) for s in panel.scales), "sliders disabled until the mode is known"
@@ -284,6 +285,14 @@ panel.tab_labels["basic"].event_generate("<ButtonRelease-1>", x=3, y=3)
 root.update()
 assert panel.buttons.winfo_ismapped()
 print("Scale tab ok")
+
+# starting on the Scale tab (remembered from last time) must work too
+started_on_scale = cg.DockedPanel(FakeEngine(), cg.Config(panel_tab="scale"),
+                                  cg.ScaleManager(lambda: displays, cg.Path(tempfile.mkdtemp()) / "t.json"))
+assert started_on_scale.tab == "scale" and started_on_scale.min_height <= 430
+started_on_scale.follower.stop()
+started_on_scale.root.destroy()
+print("start on the Scale tab ok")
 
 # stop file -> clean exit
 state["visible"] = 1
