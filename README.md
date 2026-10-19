@@ -4,7 +4,7 @@
 
 [Türkçe](README.tr.md) · [Download](../../releases/latest)
 
-![The Mod Ayarları panel docked to the right of BenQ Eye-CareU](docs/panel-docked.png)
+![The Mod Ayarları panel docked to the right of BenQ Eye-CareU](docs/docked.png)
 
 The BenQ GW2790C has no gamma or contrast control in its picture modes, and its Cinema mode is quite dark. GPU colour settings (NVIDIA, AMD, Intel) can fix that, but they apply to every mode. Cinema Gamma gives each Eye-CareU colour mode its own curve and switches it as soon as you change modes.
 
@@ -26,19 +26,20 @@ The installer is not code-signed, so Windows SmartScreen may say the publisher i
 1. Open Eye-CareU and choose a colour mode, for example **Cinema**.
 2. Move the sliders in the **Mod Ayarları** panel. The setting is saved for that mode only.
    **Basic** has gamma, brightness and contrast. **Advanced** adds the colour temperature and red, green and blue fine-tuning.
+4. **Scale** changes the display scale (100–200 %) of each connected screen, the laptop's own screen too, which Eye-CareU's resolution setting does not cover. It is temporary: the original scale comes back when the program exits, or at the next start after a crash.
 3. Switch modes. Each mode loads its own setting. A mode you never adjusted shows **varsayılan** (default).
 
 The arrow at the top right folds the panel into a small tab on Eye-CareU's edge; the tab's arrow opens it again. The panel remembers whether it was open.
 
 ![The panel folded into a small arrow tab on Eye-CareU's edge](docs/panel-folded.png)
 
-![The Basic and Advanced tabs](docs/panel-tabs.png)
+![The Basic, Advanced and Scale tabs](docs/tabs.png)
 
 The panel's labels are in Turkish:
 
 | Panel label | Meaning |
 |---|---|
-| Basic / Advanced | The two tabs |
+| Basic / Advanced / Scale | The three tabs |
 | Gamma / Parlaklık / Kontrast | Gamma / brightness / contrast |
 | Sıcaklık | Colour temperature (4000–9000 K; 6500 K is neutral) |
 | Kırmızı / Yeşil / Mavi | Red / green / blue gain |
@@ -46,6 +47,7 @@ The panel's labels are in Turkish:
 | varsayılan | This mode uses the default |
 | Bu modu sıfırla | Reset this mode |
 | Tüm modları sıfırla | Reset all modes |
+| Ölçekleri orijinale döndür | Put every display's scale back (Scale tab) |
 | ‹ / › | Fold the panel / open it again |
 
 ## Features
@@ -54,6 +56,8 @@ The panel's labels are in Turkish:
 - **Follows without polling.** Window events drive the panel. After Eye-CareU moves, the panel tracks it closely for 10 seconds, then goes idle, so it uses no CPU while nothing moves.
 - **One setting per mode.** Gamma (0.70–1.60), brightness (−0.30 to +0.30), contrast (0.50–1.50), colour temperature (4000–9000 K) and red, green and blue gains (0.50–1.00) are stored separately for Standard, Cinema, Game, ePaper, Care Mode and any other mode. Modes you never touch stay at the default.
 - **Instant switching.** Mode changes show up in Eye-CareU's log, and the panel picks them up in about 0.2 seconds. A direct DDC/CI read of the monitor also catches changes made with the monitor's own buttons.
+- **Temporary display scale.** One slider per screen, in Windows' 25 % steps. The originals are saved before the first change, so even a crash or a power cut can't leave a screen at the wrong scale.
+- **Restarts itself.** A small watchdog restarts the panel if it crashes or stops responding for 30 seconds (sleep and hibernation don't count).
 - **Safe.** It only reads from the monitor and never changes monitor settings. The curve is applied to the BenQ's output only. The original curve comes back when you switch to a mode with no custom setting, and when the program exits.
 
 ## Requirements and compatibility
@@ -79,6 +83,8 @@ Eye-CareU is closed source and has no plugin API, so Cinema Gamma runs alongside
 
 - **Current mode.** Eye-CareU switches modes by writing VCP code `0xDC` (display mode) over DDC/CI, and it logs every switch (`setColorMode: "Cinema"`). Cinema Gamma watches that log for instant updates. It also reads `0xDC` from the monitor through `dxva2.dll` every 10 seconds while Eye-CareU is open, and every 20 seconds while it is closed.
 - **Curve.** Each mode's setting becomes a gamma ramp. `SetDeviceGammaRamp` applies it only to the display output whose monitor ID starts with `BNQ`, BenQ's EDID vendor code.
+- **Display scale.** The same undocumented `DisplayConfigSetDeviceInfo` call that Settings → Display → Scale uses, per display.
+- **Watchdog.** The panel runs as a child process and touches a heartbeat file; the parent restarts it after a crash or a 30-second silence.
 - **Window.** A `SetWinEventHook` runs on its own thread and listens only to Eye-CareU's process. The panel is a borderless Tk window. It is moved with `SetWindowPos`, rounded with `SetWindowRgn`, and is per-monitor DPI aware.
 
 Settings are saved in `%LOCALAPPDATA%\CinemaGamma\config.json`, and the log in `cinema_gamma.log` in the same folder.

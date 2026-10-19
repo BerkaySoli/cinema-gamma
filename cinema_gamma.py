@@ -59,6 +59,8 @@ CONFIG_PATH = APP_DIR / "config.json"
 LOG_PATH = APP_DIR / "cinema_gamma.log"
 STOP_PATH = APP_DIR / "stop"        # the setup wizard creates it: a running copy exits cleanly
 RESTART_PATH = APP_DIR / "restart"  # after an update: a running copy restarts on the new code
+HEARTBEAT_PATH = APP_DIR / "heartbeat"  # touched by the panel; the watchdog restarts it if it goes stale
+WATCHDOG_LOG_PATH = APP_DIR / "watchdog.log"
 EYECARE_LOG_DIR = LOCAL_APPDATA / "BenQ" / "Eye-CareU" / "log"
 STARTUP_LINK = (
     Path(os.environ.get("APPDATA", str(Path.home())))
@@ -68,11 +70,12 @@ STARTUP_LINK = (
 log = logging.getLogger("cinema_gamma")
 
 
-def setup_logging() -> None:
+def setup_logging(path: Path = LOG_PATH) -> None:
+    """Each process logs to its own file: two processes rotating one file would clash."""
     APP_DIR.mkdir(parents=True, exist_ok=True)
     log.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    file_handler = RotatingFileHandler(LOG_PATH, maxBytes=512_000, backupCount=1, encoding="utf-8")
+    file_handler = RotatingFileHandler(path, maxBytes=512_000, backupCount=1, encoding="utf-8")
     file_handler.setFormatter(fmt)
     log.addHandler(file_handler)
     if sys.stderr is not None:  # pythonw has no console
@@ -92,6 +95,21 @@ def take_flag(path: Path) -> bool:
 
 def stop_requested() -> bool:
     return take_flag(STOP_PATH)
+
+
+_last_beat = 0.0
+
+
+def heartbeat(interval: float = 5.0) -> None:
+    """Tell the watchdog we are alive (at most every `interval` seconds: cheap on the disk)."""
+    global _last_beat
+    now = time.monotonic()
+    if now - _last_beat >= interval:
+        _last_beat = now
+        try:
+            HEARTBEAT_PATH.write_bytes(b"")
+        except OSError:
+            pass
 
 
 restart_requested = False  # set by the panel; main() starts the new copy after cleaning up
@@ -425,6 +443,11 @@ def set_dpi_awareness() -> str:
 
 
 _mutex_handle = None
+for _name in ("DisplayConfigGetDeviceInfo", "DisplayConfigSetDeviceInfo"):
+    _sig(getattr(user32, _name), ctypes.c_long, ctypes.c_void_p)
+_sig(user32.GetDisplayConfigBufferSizes, ctypes.c_long, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
+_sig(user32.QueryDisplayConfig, ctypes.c_long, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p,
+     ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
 
 
 def acquire_single_instance(name: str) -> bool:
@@ -1039,6 +1062,259 @@ class EyeCareFollower(threading.Thread):
 
 
 # ---------------------------------------------------------------------------
+# Display scale (DPI) per monitor, temporary: Windows' own setting is put back
+# when the program exits, and after a crash the next start puts it back.
+# Uses the undocumented DisplayConfig{Get,Set}DeviceInfo types -3 / -4, the same
+# calls Settings > Display > Scale makes.
+# ---------------------------------------------------------------------------
+QDC_ONLY_ACTIVE_PATHS = 0x2
+ERROR_INSUFFICIENT_BUFFER = 122
+DEVICE_INFO_GET_TARGET_NAME = 2
+DEVICE_INFO_GET_DPI_SCALE = -3
+DEVICE_INFO_SET_DPI_SCALE = -4
+DPI_STEPS = (100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500)  # Windows' scale steps
+SCALE_MIN, SCALE_MAX, SCALE_STEP = 100, 200, 25  # what the Scale tab offers
+INTERNAL_OUTPUT_TECH = {6, 11, 13, 0x80000000}  # LVDS, eDP, UDI embedded, internal: a laptop panel
+SCALE_STATE_PATH = APP_DIR / "scale_originals.json"  # exists only while a scale is changed
+
+
+class LUID(ctypes.Structure):
+    _fields_ = [("LowPart", ctypes.c_uint32), ("HighPart", ctypes.c_int32)]
+
+
+class RATIONAL(ctypes.Structure):
+    _fields_ = [("Numerator", ctypes.c_uint32), ("Denominator", ctypes.c_uint32)]
+
+
+class PATH_SOURCE_INFO(ctypes.Structure):
+    _fields_ = [("adapterId", LUID), ("id", ctypes.c_uint32),
+                ("modeInfoIdx", ctypes.c_uint32), ("statusFlags", ctypes.c_uint32)]
+
+
+class PATH_TARGET_INFO(ctypes.Structure):
+    _fields_ = [("adapterId", LUID), ("id", ctypes.c_uint32), ("modeInfoIdx", ctypes.c_uint32),
+                ("outputTechnology", ctypes.c_uint32), ("rotation", ctypes.c_uint32),
+                ("scaling", ctypes.c_uint32), ("refreshRate", RATIONAL),
+                ("scanLineOrdering", ctypes.c_uint32), ("targetAvailable", ctypes.c_int32),
+                ("statusFlags", ctypes.c_uint32)]
+
+
+class PATH_INFO(ctypes.Structure):
+    _fields_ = [("sourceInfo", PATH_SOURCE_INFO), ("targetInfo", PATH_TARGET_INFO), ("flags", ctypes.c_uint32)]
+
+
+class MODE_INFO(ctypes.Structure):
+    _fields_ = [("raw", ctypes.c_ubyte * 64)]  # contents unused; QueryDisplayConfig needs the size
+
+
+class DEVICE_INFO_HEADER(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int32), ("size", ctypes.c_uint32), ("adapterId", LUID), ("id", ctypes.c_uint32)]
+
+
+class TARGET_DEVICE_NAME(ctypes.Structure):
+    _fields_ = [("header", DEVICE_INFO_HEADER), ("flags", ctypes.c_uint32),
+                ("outputTechnology", ctypes.c_uint32), ("edidManufactureId", ctypes.c_uint16),
+                ("edidProductCodeId", ctypes.c_uint16), ("connectorInstance", ctypes.c_uint32),
+                ("monitorFriendlyDeviceName", ctypes.c_wchar * 64), ("monitorDevicePath", ctypes.c_wchar * 128)]
+
+
+class DPI_SCALE_GET(ctypes.Structure):
+    _fields_ = [("header", DEVICE_INFO_HEADER), ("minScaleRel", ctypes.c_int32),
+                ("curScaleRel", ctypes.c_int32), ("maxScaleRel", ctypes.c_int32)]
+
+
+class DPI_SCALE_SET(ctypes.Structure):
+    _fields_ = [("header", DEVICE_INFO_HEADER), ("scaleRel", ctypes.c_int32)]
+
+
+def _check_display_structs() -> None:
+    """Wrong sizes make the API return garbage silently, so check before the first call."""
+    sizes = {PATH_INFO: 72, MODE_INFO: 64, TARGET_DEVICE_NAME: 420}
+    wrong = [cls.__name__ for cls, size in sizes.items() if ctypes.sizeof(cls) != size]
+    if wrong:
+        raise OSError(f"unexpected structure size: {', '.join(wrong)}")
+
+
+def _display_call(func, request) -> None:
+    result = func(ctypes.byref(request))
+    if result != 0:
+        raise OSError(f"display configuration call failed (error {result})")
+
+
+def _header(request, info_type: int, adapter: LUID, device_id: int) -> None:
+    request.header.type = info_type
+    request.header.size = ctypes.sizeof(request)
+    request.header.adapterId = adapter
+    request.header.id = device_id
+
+
+def scale_from_relative(relative: int, minimum_relative: int) -> int:
+    """Windows reports the scale as steps relative to the 'recommended' one; the
+    lowest step it allows is always 100 %."""
+    recommended = abs(minimum_relative)
+    return DPI_STEPS[max(0, min(recommended + relative, len(DPI_STEPS) - 1))]
+
+
+def relative_from_scale(percent: int, minimum_relative: int, maximum_relative: int) -> int:
+    return max(minimum_relative, min(DPI_STEPS.index(percent) - abs(minimum_relative), maximum_relative))
+
+
+class Display:
+    """One active display (Windows' display 1, 2, ...)."""
+
+    def __init__(self, path: PATH_INFO, number: int) -> None:
+        source, target = path.sourceInfo, path.targetInfo
+        self.adapter = LUID(source.adapterId.LowPart, source.adapterId.HighPart)
+        self.source_id = source.id
+        self.is_internal = target.outputTechnology in INTERNAL_OUTPUT_TECH
+        name = self._friendly_name(target) or ("Laptop ekranı" if self.is_internal else "Harici ekran")
+        self.label = f"{number}. {name}"
+
+    @property
+    def key(self) -> str:
+        return f"{self.adapter.LowPart}:{self.adapter.HighPart}:{self.source_id}"
+
+    @staticmethod
+    def _friendly_name(target: PATH_TARGET_INFO) -> str:
+        request = TARGET_DEVICE_NAME()
+        _header(request, DEVICE_INFO_GET_TARGET_NAME, target.adapterId, target.id)
+        try:
+            _display_call(user32.DisplayConfigGetDeviceInfo, request)
+        except OSError:
+            return ""
+        return request.monitorFriendlyDeviceName  # often empty for laptop panels
+
+    def _query(self) -> DPI_SCALE_GET:
+        request = DPI_SCALE_GET()
+        _header(request, DEVICE_INFO_GET_DPI_SCALE, self.adapter, self.source_id)
+        _display_call(user32.DisplayConfigGetDeviceInfo, request)
+        return request
+
+    def get_scale(self) -> int:
+        info = self._query()
+        return scale_from_relative(info.curScaleRel, info.minScaleRel)
+
+    def max_scale(self) -> int:
+        info = self._query()
+        return scale_from_relative(info.maxScaleRel, info.minScaleRel)
+
+    def set_scale(self, percent: int) -> None:
+        info = self._query()
+        request = DPI_SCALE_SET()
+        _header(request, DEVICE_INFO_SET_DPI_SCALE, self.adapter, self.source_id)
+        request.scaleRel = relative_from_scale(percent, info.minScaleRel, info.maxScaleRel)
+        _display_call(user32.DisplayConfigSetDeviceInfo, request)
+
+
+def get_displays() -> list:
+    """Active displays, without the duplicates Duplicate (clone) mode reports."""
+    _check_display_structs()
+    for _ in range(3):  # a display plugged in between the two calls changes the sizes
+        n_paths, n_modes = ctypes.c_uint32(), ctypes.c_uint32()
+        result = user32.GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, ctypes.byref(n_paths),
+                                                    ctypes.byref(n_modes))
+        if result != 0:
+            raise OSError(f"GetDisplayConfigBufferSizes failed (error {result})")
+        paths, modes = (PATH_INFO * n_paths.value)(), (MODE_INFO * n_modes.value)()
+        result = user32.QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ctypes.byref(n_paths), paths,
+                                           ctypes.byref(n_modes), modes, None)
+        if result == ERROR_INSUFFICIENT_BUFFER:
+            continue
+        if result != 0:
+            raise OSError(f"QueryDisplayConfig failed (error {result})")
+        break
+    else:
+        raise OSError("the display configuration keeps changing")
+    displays, seen = [], set()
+    for index in range(n_paths.value):
+        display = Display(paths[index], number=len(displays) + 1)
+        if display.key not in seen:
+            seen.add(display.key)
+            displays.append(display)
+    return displays
+
+
+class ScaleManager:
+    """Temporary scale changes. The originals are written to disk before the first
+    change, so a crash or a power cut never leaves a display at the wrong scale."""
+
+    def __init__(self, list_displays=get_displays, state_path: Path = SCALE_STATE_PATH) -> None:
+        self._list = list_displays
+        self.state_path = state_path
+        self.displays: list = []
+        self.originals: dict = {}
+        self.changed: set = set()
+        self.error = ""
+
+    def refresh(self) -> list:
+        """(Re)read the displays; remember the original scale of any new one."""
+        try:
+            self.displays = self._list()
+            self.error = ""
+        except OSError as exc:
+            self.displays, self.error = [], str(exc)
+            log.warning("display scale unavailable: %s", exc)
+            return self.displays
+        for display in self.displays:
+            if display.key not in self.originals:
+                try:
+                    self.originals[display.key] = display.get_scale()
+                except OSError as exc:
+                    log.warning("scale of %s unreadable: %s", display.label, exc)
+        return self.displays
+
+    def recover(self) -> None:
+        """A previous run ended without restoring (crash, power cut): put the scales back."""
+        try:
+            saved = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError):
+            saved = {}
+        try:
+            for display in self._list():
+                if display.key in saved and display.get_scale() != int(saved[display.key]):
+                    display.set_scale(int(saved[display.key]))
+                    log.info("scale of %s restored to %s %% after an unclean exit", display.label,
+                             saved[display.key])
+        except (OSError, ValueError) as exc:
+            log.warning("scale recovery failed: %s", exc)
+        try:
+            self.state_path.unlink()
+        except FileNotFoundError:
+            pass
+
+    def find(self, key: str):
+        return next((d for d in self.displays if d.key == key), None)
+
+    def set_scale(self, key: str, percent: int) -> None:
+        display = self.find(key)
+        if display is None or display.get_scale() == percent:
+            return
+        if not self.state_path.exists():  # before the change: crash safety
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.state_path.write_text(json.dumps(self.originals), encoding="utf-8")
+        display.set_scale(percent)
+        self.changed.add(key)
+        log.info("scale of %s set to %s %%", display.label, percent)
+
+    def restore_all(self) -> None:
+        """Put every changed display back; safe to call more than once."""
+        for display in self.displays:
+            if display.key in self.changed and display.key in self.originals:
+                try:
+                    display.set_scale(self.originals[display.key])
+                    log.info("scale of %s restored to %s %%", display.label, self.originals[display.key])
+                except OSError as exc:
+                    log.warning("restoring the scale of %s failed: %s", display.label, exc)
+        self.changed.clear()
+        try:
+            self.state_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Docked panel (Tk, main thread)
 # ---------------------------------------------------------------------------
 BASIC_SLIDERS = (
@@ -1052,7 +1328,7 @@ ADVANCED_SLIDERS = BASIC_SLIDERS + (
     ("green", "Yeşil", 0.50, 1.00),
     ("blue", "Mavi", 0.50, 1.00),
 )
-PANEL_TABS = (("basic", "Basic"), ("advanced", "Advanced"))  # same words as Eye-CareU's own tabs
+PANEL_TABS = (("basic", "Basic"), ("advanced", "Advanced"), ("scale", "Scale"))  # like Eye-CareU's own tabs
 
 
 def format_setting(key: str, value: float) -> str:
@@ -1083,9 +1359,12 @@ class DockedPanel:
         "button_hover": "#2A68A3", "warn": "#F0A340",
     }
 
-    def __init__(self, engine: ModeEngine, config: Config) -> None:
+    def __init__(self, engine: ModeEngine, config: Config, scale: ScaleManager | None = None) -> None:
         import tkinter as tk  # imported here so --no-panel works even without Tk
         from tkinter import ttk
+
+        self.scale_manager = scale or ScaleManager()
+        self._scale_jobs: dict = {}
 
         self.tk, self.ttk = tk, ttk
         self.engine = engine
@@ -1123,7 +1402,8 @@ class DockedPanel:
             root.update_idletasks()
             heights.append(self.full_view.winfo_reqheight())
             self.tab_frames[name].pack_forget()
-        self.tab_frames[self.tab].pack(fill="x", before=self.buttons)
+        current, self.tab = self.tab, ""
+        self.select_tab(current, save=False)
         self.min_height = max(heights)
         previous_foreground = user32.GetForegroundWindow()
         width = self.WIDTH + self.OVERLAP
@@ -1172,10 +1452,12 @@ class DockedPanel:
         self.tab_labels: dict[str, object] = {}
         for index, (name, text) in enumerate(PANEL_TABS):
             label = self._button(tabs_in, text, lambda n=name: self.select_tab(n), bg=c["tabs"], fg=c["muted"],
-                                 hover=c["tabs"], hover_fg=c["text"], font=("Segoe UI", 10), padx=4, pady=2)
-            label.place(relx=0.25 + 0.5 * index, rely=0.5, anchor="center")
+                                 hover=c["tabs"], hover_fg=c["text"], font=("Segoe UI", 10), padx=0, pady=2)
+            label.place(relx=(index + 0.5) / len(PANEL_TABS), rely=0.5, anchor="center")
             self.tab_labels[name] = label
-        tk.Frame(tabs_in, bg=c["muted"], width=1, height=12).place(relx=0.5, rely=0.5, anchor="center")
+        for index in range(1, len(PANEL_TABS)):
+            tk.Frame(tabs_in, bg=c["muted"], width=1, height=12).place(
+                relx=index / len(PANEL_TABS), rely=0.5, anchor="center")
 
         body = tk.Frame(full, bg=c["content"])
         body.pack(fill="both", expand=True)
@@ -1199,7 +1481,7 @@ class DockedPanel:
         self.value_labels: dict[str, list] = {key: [] for key in self.slider_vars}
         self.scales: list = []
 
-        self.tab_frames = {"basic": tk.Frame(body, bg=c["content"]), "advanced": tk.Frame(body, bg=c["content"])}
+        self.tab_frames = {name: tk.Frame(body, bg=c["content"]) for name, _ in PANEL_TABS}
         for index, (key, label, low, high) in enumerate(BASIC_SLIDERS):  # roomy, like Eye-CareU's rows
             frame = self.tab_frames["basic"]
             row = tk.Frame(frame, bg=c["content"])
@@ -1271,10 +1553,95 @@ class DockedPanel:
             label.configure(fg=self.COLORS["tab"] if selected else self.COLORS["muted"])
             label.bind("<Leave>", lambda _e, lb=label, sel=selected: lb.configure(
                 fg=self.COLORS["tab"] if sel else self.COLORS["muted"]))
-        self.tab_frames[name].pack(fill="x", before=self.buttons)
+        if name == "scale":  # the mode reset buttons don't apply to display scales
+            self.buttons.pack_forget()
+            self._build_scale_tab()
+            self.tab_frames[name].pack(fill="x")
+        else:
+            self.buttons.pack(fill="x", side="bottom")
+            self.tab_frames[name].pack(fill="x", before=self.buttons)
         if save:
             self.config.panel_tab = name
             self._schedule_save()
+
+    # ---- Scale tab: temporary per-display scale -------------------------------
+    def _build_scale_tab(self) -> None:
+        """Rebuilt each time the tab opens, so displays plugged in meanwhile show up."""
+        tk, ttk, c = self.tk, self.ttk, self.COLORS
+        frame = self.tab_frames["scale"]
+        for child in frame.winfo_children():
+            child.destroy()
+        manager = self.scale_manager
+        manager.refresh()
+        self.scale_rows: dict = {}
+        if not manager.displays:
+            tk.Label(frame, text="Ekran ölçeği okunamadı.", bg=c["content"], fg=c["warn"],
+                     font=("Segoe UI", 10), anchor="w").pack(fill="x", pady=(10, 0))
+            return
+        for index, display in enumerate(manager.displays):
+            try:
+                current, highest = display.get_scale(), display.max_scale()
+            except OSError:
+                continue
+            row = tk.Frame(frame, bg=c["content"])
+            row.pack(fill="x", pady=(8 if index == 0 else 9, 0))
+            tk.Label(row, text=display.label[:20], bg=c["content"], fg=c["label"],
+                     font=("Segoe UI", 10)).pack(side="left")
+            value = tk.Label(row, bg=c["content"], fg=c["text"], font=("Segoe UI", 10))
+            value.pack(side="right")
+            var = tk.DoubleVar(value=current)
+            top = max(SCALE_MIN, min(highest, SCALE_MAX))
+            scale = ttk.Scale(frame, from_=SCALE_MIN, to=top, orient="horizontal", variable=var,
+                              takefocus=False, style="Panel.Horizontal.TScale",
+                              command=lambda _v, key=display.key: self._on_scale_slide(key))
+            scale.pack(fill="x", pady=(6, 9))
+            if top == SCALE_MIN:
+                scale.state(["disabled"])
+            tk.Frame(frame, bg=c["line"], height=1).pack(fill="x")
+            self.scale_rows[display.key] = (var, value)
+            self._show_scale(display.key)
+        self._button(frame, "Ölçekleri orijinale döndür", self.restore_scales, bg=c["button"], fg=c["text"],
+                     hover=c["button_hover"], pady=7).pack(fill="x", pady=(12, 4))
+        tk.Label(frame, text="Geçici: program kapanınca eski hâline döner.", bg=c["content"],
+                 fg=c["muted"], font=("Segoe UI", 9), anchor="w", justify="left",
+                 wraplength=self.WIDTH - 40).pack(fill="x")
+
+    @staticmethod
+    def snap_scale(value: float) -> int:
+        return int(min(max(round(value / SCALE_STEP) * SCALE_STEP, SCALE_MIN), SCALE_MAX))
+
+    def _show_scale(self, key: str) -> None:
+        var, value = self.scale_rows[key]
+        percent = self.snap_scale(var.get())
+        original = self.scale_manager.originals.get(key, percent)
+        value.configure(text=f"%{percent}" if percent == original else f"%{original} → %{percent}",
+                        fg=self.COLORS["text"] if percent == original else self.COLORS["accent"])
+
+    def _on_scale_slide(self, key: str) -> None:
+        var, _ = self.scale_rows[key]
+        var.set(self.snap_scale(var.get()))  # 25-point steps, like Windows' own list
+        self._show_scale(key)
+        if key in self._scale_jobs:
+            self.root.after_cancel(self._scale_jobs[key])
+        self._scale_jobs[key] = self.root.after(450, lambda: self._apply_scale(key))  # once dragging stops
+
+    def _apply_scale(self, key: str) -> None:
+        self._scale_jobs.pop(key, None)
+        var, _ = self.scale_rows[key]
+        try:
+            self.scale_manager.set_scale(key, self.snap_scale(var.get()))
+        except OSError as exc:
+            log.warning("scale change failed: %s", exc)
+            self._flash("Windows ölçeği değiştirmedi.", "warn")
+
+    def restore_scales(self) -> None:
+        for job in self._scale_jobs.values():
+            self.root.after_cancel(job)
+        self._scale_jobs.clear()
+        self.scale_manager.restore_all()
+        if self.tab == "scale":
+            self._build_scale_tab()
+        self._flash("Ölçekler orijinal hâline döndü.", "accent")
 
     def _bind_click(self, canvas, command) -> None:
         """Fire on mouse-button release over the canvas (works for injected clicks too); the
@@ -1398,6 +1765,7 @@ class DockedPanel:
             self._save()
         self.follower.stop()
         self.engine.stop()  # puts the original curve back
+        self.scale_manager.restore_all()  # and the displays' original scale
         self.root.destroy()
 
     def _flash(self, text: str, color: str) -> None:
@@ -1413,6 +1781,7 @@ class DockedPanel:
     def _tick(self) -> None:
         global restart_requested
         delay = self.TICK_OPEN_MS
+        heartbeat()
         try:
             if stop_requested():
                 log.info("stop requested")
@@ -1573,9 +1942,9 @@ class DockedPanel:
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
-def run_panel(engine: ModeEngine, config: Config) -> None:
+def run_panel(engine: ModeEngine, config: Config, scale: ScaleManager) -> None:
     try:
-        panel = DockedPanel(engine, config)
+        panel = DockedPanel(engine, config, scale)
     except Exception:  # e.g. Python installed without Tk
         log.exception("panel unavailable - continuing without it")
         run_headless(engine)
@@ -1591,6 +1960,7 @@ def run_headless(engine: ModeEngine) -> None:
             if take_flag(RESTART_PATH):
                 restart_requested = True
                 break
+            heartbeat()
             time.sleep(1)
     except KeyboardInterrupt:
         pass
@@ -1615,17 +1985,88 @@ def app_folder() -> Path:
     return Path(sys.executable if FROZEN else __file__).resolve().parent
 
 
-def restart_self() -> None:
-    """Start a fresh copy of this program (same interpreter and arguments) once we are cleaned up."""
-    global _mutex_handle
-    if _mutex_handle:
-        kernel32.CloseHandle(_mutex_handle)  # let the new copy take the single-instance mutex
-        _mutex_handle = None
-    args = launch_command()
-    args += [a for a in sys.argv[1:] if a != "--after-restart"] + ["--after-restart"]
-    subprocess.Popen(args, cwd=str(app_folder()), close_fds=True,
-                     creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
-    log.info("restarted")
+# ---------------------------------------------------------------------------
+# Watchdog: the visible program runs as a child process. If it crashes (Tk can
+# abort when display settings change) or stops responding, it is restarted.
+# ---------------------------------------------------------------------------
+EXIT_RESTART = 3  # the child asks for a restart (e.g. after an update)
+WATCHDOG_MUTEX = "Local\\CinemaGammaWatchdog"
+
+
+class Watchdog:
+    HANG_SECONDS = 30.0   # no heartbeat for this long: the child is stuck
+    POLL_SECONDS = 2.0
+    MAX_RESTARTS, RESTART_WINDOW = 5, 300.0  # give up after 5 crashes within 5 minutes
+
+    def __init__(self, command: list, heartbeat_path: Path = HEARTBEAT_PATH, popen=None,
+                 sleep=time.sleep, clock=time.monotonic, wall_clock=time.time) -> None:
+        self.command = command
+        self.heartbeat_path = heartbeat_path
+        self._popen = popen or self._spawn
+        self._sleep, self._clock, self._wall = sleep, clock, wall_clock
+
+    @staticmethod
+    def _spawn(command: list):
+        return subprocess.Popen(command, cwd=str(app_folder()), close_fds=True)
+
+    def run(self) -> int:
+        crashes: list = []
+        command = list(self.command)
+        while True:
+            child = self._popen(command)
+            log.info("watchdog: started the program (pid %s)", getattr(child, "pid", "?"))
+            code = self._watch(child)
+            command = list(self.command) + ["--after-restart"]
+            if code == 0:
+                log.info("watchdog: the program exited normally")
+                return 0
+            if code == EXIT_RESTART:
+                log.info("watchdog: restart requested")
+                continue
+            log.warning("watchdog: the program %s - restarting",
+                        "stopped responding" if code is None else f"crashed (exit code {code:#x})")
+            now = self._clock()
+            crashes = [t for t in crashes if now - t < self.RESTART_WINDOW] + [now]
+            if len(crashes) > self.MAX_RESTARTS:
+                log.error("watchdog: too many crashes, giving up")
+                return 1
+            self._sleep(2.0)
+
+    def _heartbeat_age(self) -> float | None:
+        try:
+            return self._wall() - self.heartbeat_path.stat().st_mtime
+        except OSError:
+            return None
+
+    def _watch(self, child) -> int | None:
+        """The child's exit code, or None after killing it for not responding."""
+        baseline = last_loop = self._clock()
+        while True:
+            code = child.poll()
+            if code is not None:
+                return code
+            now = self._clock()
+            if now - last_loop > self.HANG_SECONDS / 2:
+                baseline = now  # the computer was asleep: nobody could beat meanwhile
+            last_loop = now
+            age = self._heartbeat_age()
+            quiet = now - baseline if age is None else min(age, now - baseline)
+            if quiet > self.HANG_SECONDS:
+                child.kill()
+                child.wait()
+                return None
+            self._sleep(self.POLL_SECONDS)
+
+
+def run_watchdog(child_args: list) -> int:
+    if not acquire_single_instance(WATCHDOG_MUTEX):
+        log.info("watchdog already running - exiting")
+        return 0
+    try:
+        HEARTBEAT_PATH.unlink()
+    except OSError:
+        pass
+    return Watchdog(launch_command(windowless=True) + ["--child"] + child_args).run()
 
 
 def _ps_quote(text: str) -> str:
@@ -1674,15 +2115,17 @@ def main() -> None:
     parser.add_argument("--uninstall", action="store_true", help="remove the login shortcut")
     parser.add_argument("--no-panel", action="store_true", help="apply the saved settings only, without the panel")
     parser.add_argument("--after-restart", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--child", action="store_true", help=argparse.SUPPRESS)  # started by the watchdog
     args = parser.parse_args()
 
+    if args.install or args.uninstall:
+        setup_logging()
+        install_startup() if args.install else uninstall_startup()
+        return
+    if not args.child:
+        setup_logging(WATCHDOG_LOG_PATH)
+        sys.exit(run_watchdog(["--no-panel"] if args.no_panel else []))
     setup_logging()
-    if args.install:
-        install_startup()
-        return
-    if args.uninstall:
-        uninstall_startup()
-        return
     # After a restart the old copy may need a moment to exit and release the mutex.
     for attempt in range(25 if args.after_restart else 1):
         if acquire_single_instance("Local\\CinemaGamma"):
@@ -1699,14 +2142,19 @@ def main() -> None:
     config = Config.load()
     engine = ModeEngine(config)
     atexit.register(engine.stop)  # Ctrl+C / normal exit puts the original curve back
+    scale = ScaleManager()
+    scale.recover()  # display scales a crashed run left changed
+    atexit.register(scale.restore_all)
     engine.start()
     if args.no_panel:
         run_headless(engine)
     else:
-        run_panel(engine, config)
+        run_panel(engine, config, scale)
     engine.stop()
     if restart_requested:
-        restart_self()
+        scale.restore_all()
+        logging.shutdown()
+        sys.exit(EXIT_RESTART)  # the watchdog starts the new code
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 
 [English](README.md) · [İndir](../../releases/latest)
 
-![BenQ Eye-CareU'nun sağına yapışmış Mod Ayarları paneli](docs/panel-docked.png)
+![BenQ Eye-CareU'nun sağına yapışmış Mod Ayarları paneli](docs/docked.png)
 
 BenQ GW2790C'nin resim modlarında gamma veya kontrast ayarı yok ve Cinema modu oldukça karanlık. Ekran kartı renk ayarları (NVIDIA, AMD, Intel) bunu düzeltebilir ama her moda birden uygulanır. Cinema Gamma, Eye-CareU'daki her renk moduna kendi eğrisini verir ve modu değiştirdiğiniz anda o modun ayarına geçer.
 
@@ -26,21 +26,23 @@ Kurulum dosyası kod imzalı olmadığı için Windows SmartScreen "bilinmeyen y
 1. Eye-CareU'yu açıp bir renk modu seçin, örneğin **Cinema**.
 2. **Mod Ayarları** panelindeki kaydırıcıları oynatın. Ayar yalnızca o mod için kaydedilir.
    **Basic** sekmesinde gamma, parlaklık ve kontrast; **Advanced** sekmesinde bunlara ek olarak renk sıcaklığı ile kırmızı, yeşil ve mavi ince ayarı var.
+4. **Scale** sekmesi bağlı her ekranın ölçeğini (%100–%200) değiştirir; Eye-CareU'nun çözünürlük ayarının kapsamadığı laptop ekranı da dahil. Değişiklik geçicidir: program kapanınca ya da bir çökmeden sonraki ilk açılışta orijinal ölçek geri gelir.
 3. Mod değiştirin. Her mod kendi ayarını yükler; hiç ayarlamadığınız modlarda **varsayılan** yazar.
 
 Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; karenin üzerindeki ok paneli yeniden açar. Panel açık mı kapalı mı olduğunu hatırlar.
 
 ![Eye-CareU'nun kenarında oklu küçük kareye katlanmış panel](docs/panel-folded.png)
 
-![Basic ve Advanced sekmeleri](docs/panel-tabs.png)
+![Basic, Advanced ve Scale sekmeleri](docs/tabs.png)
 
 | Düğme | Ne yapar |
 |---|---|
-| Basic / Advanced | İki sekme |
+| Basic / Advanced / Scale | Üç sekme |
 | Sıcaklık | Renk sıcaklığı (4000–9000 K; 6500 K nötr) |
 | Kırmızı / Yeşil / Mavi | Kanal başına ince ayar |
 | Bu modu sıfırla | Geçerli modu varsayılana döndürür |
 | Tüm modları sıfırla | Bütün modları varsayılana döndürür |
+| Ölçekleri orijinale döndür | Bütün ekranların ölçeğini geri alır (Scale sekmesi) |
 | ‹ / › | Paneli katlar / yeniden açar |
 
 ## Özellikler
@@ -49,6 +51,8 @@ Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; ka
 - **Sürekli kontrol etmeden takip eder.** Paneli pencere olayları yönetir. Eye-CareU hareket ettikten sonra 10 saniye boyunca sıkı takip eder, sonra uykuya geçer; hiçbir şey hareket etmezken işlemci kullanmaz.
 - **Her moda ayrı ayar.** Gamma (0,70–1,60), parlaklık (−0,30 ile +0,30 arası), kontrast (0,50–1,50), renk sıcaklığı (4000–9000 K) ve kırmızı, yeşil, mavi kazancı (0,50–1,00); Standard, Cinema, Game, ePaper, Care Mode ve diğer tüm modlar için ayrı saklanır. Hiç dokunmadığınız modlar varsayılanda kalır.
 - **Anında geçiş.** Mod değişikliği Eye-CareU'nun günlüğüne düşer ve panel bunu yaklaşık 0,2 saniyede yakalar. Monitörün kendi tuşlarıyla yapılan değişiklikleri de monitörden DDC/CI ile doğrudan okuyarak yakalar.
+- **Geçici ekran ölçeği.** Her ekran için Windows'un %25'lik adımlarıyla bir kaydırıcı. Orijinal değerler ilk değişiklikten önce kaydedilir; çökme ya da elektrik kesintisi bile bir ekranı yanlış ölçekte bırakamaz.
+- **Kendini yeniden başlatır.** Küçük bir bekçi, panel çökerse ya da 30 saniye yanıt vermezse onu yeniden başlatır (uyku ve hazırda bekletme sayılmaz).
 - **Güvenli.** Monitörden yalnızca okur, monitör ayarlarını asla değiştirmez. Eğri yalnızca BenQ'nun bağlı olduğu çıkışa uygulanır. Özel ayarı olmayan bir moda geçtiğinizde ve program kapandığında orijinal eğri geri gelir.
 
 ## Gereksinimler ve uyumluluk
@@ -74,6 +78,8 @@ Eye-CareU kapalı kaynaklıdır ve eklenti desteği yoktur; Cinema Gamma onun ya
 
 - **Geçerli mod.** Eye-CareU modu, DDC/CI üzerinden `0xDC` (display mode) VCP koduna yazarak değiştirir ve her geçişi günlüğüne yazar (`setColorMode: "Cinema"`). Cinema Gamma anında haberdar olmak için bu günlüğü izler. Ayrıca `0xDC` değerini `dxva2.dll` ile monitörden doğrudan okur: Eye-CareU açıkken 10 saniyede bir, kapalıyken 20 saniyede bir.
 - **Eğri.** Her modun ayarından bir gamma rampası üretilir. `SetDeviceGammaRamp` bunu yalnızca monitör kimliği BenQ'nun EDID üretici kodu `BNQ` ile başlayan çıkışa uygular.
+- **Ekran ölçeği.** Ayarlar → Ekran → Ölçek'in kullandığı belgelenmemiş `DisplayConfigSetDeviceInfo` çağrısı, ekran başına.
+- **Bekçi.** Panel bir alt süreç olarak çalışır ve bir kalp atışı dosyasını günceller; üst süreç çökme veya 30 saniyelik sessizlikte onu yeniden başlatır.
 - **Pencere.** `SetWinEventHook` kendi iş parçacığında çalışır ve yalnızca Eye-CareU'nun sürecini dinler. Panel kenarlıksız bir Tk penceresidir: `SetWindowPos` ile taşınır, `SetWindowRgn` ile köşeleri yuvarlanır ve her monitörün DPI ölçeğine uyar.
 
 Ayarlar `%LOCALAPPDATA%\CinemaGamma\config.json` dosyasında, günlük aynı klasördeki `cinema_gamma.log` dosyasında tutulur.
