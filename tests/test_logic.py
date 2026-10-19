@@ -6,6 +6,8 @@ Runs on any OS (Win32 is stubbed, the monitor and the gamma curve are faked):
 import ctypes
 import json
 import os
+import subprocess
+import sys
 import time
 
 from winstub import load_cinema_gamma, temp_dir
@@ -386,4 +388,124 @@ ramp = cg.build_ramp(P(red=0.8))
 assert ramp[0][255] == round(0.8 * 65535) and ramp[1][255] == ramp[2][255] == 65535
 assert not P(temperature=5000).is_default() and P(temperature=6510).is_default() and not P(blue=0.9).is_default()
 print("colour temperature + RGB gains ok")
+
+# display scale: Windows' relative steps <-> percent
+assert cg.scale_from_relative(0, -2) == 150 and cg.scale_from_relative(-2, -2) == 100
+assert cg.scale_from_relative(2, -2) == 200 and cg.relative_from_scale(125, -2, 3) == -1
+assert cg.relative_from_scale(500, -2, 3) == 3, "never past what the display allows"
+
+
+class FakeDisplay:
+    def __init__(self, key, scale, top=200, fail=False):
+        self.key, self.label, self.scale, self.top, self.fail, self.sets = key, f"Display {key}", scale, top, fail, []
+
+    def get_scale(self):
+        return self.scale
+
+    def max_scale(self):
+        return self.top
+
+    def set_scale(self, percent):
+        if self.fail:
+            raise OSError("refused")
+        self.sets.append(percent)
+        self.scale = percent
+
+
+laptop, benq = FakeDisplay("a", 150), FakeDisplay("b", 100)
+state = cg.Path(temp_dir()) / "scale_originals.json"
+mgr = cg.ScaleManager(lambda: [laptop, benq], state)
+mgr.recover()  # no state file: nothing to do
+assert mgr.refresh() == [laptop, benq] and mgr.originals == {"a": 150, "b": 100}
+mgr.set_scale("a", 125)
+assert laptop.scale == 125 and json.loads(state.read_text()) == {"a": 150, "b": 100}, "originals saved first"
+mgr.set_scale("a", 125)
+assert laptop.sets == [125], "no call when the scale is already there"
+mgr.restore_all()
+assert laptop.scale == 150 and benq.sets == [] and not state.exists()
+# crash: the state file survives, the next start puts the originals back
+mgr.set_scale("b", 175)
+mgr2 = cg.ScaleManager(lambda: [laptop, benq], state)
+mgr2.recover()
+assert benq.scale == 100 and not state.exists()
+# unreadable displays: no crash, an error to show
+broken = cg.ScaleManager(lambda: (_ for _ in ()).throw(OSError("no API")), state)
+assert broken.refresh() == [] and "no API" in broken.error
+broken.recover()
+print("display scale manager ok")
+
+# watchdog: restarts a crashed or stuck child, stops when the child exits normally
+class FakeChild:
+    def __init__(self, codes):
+        self.codes, self.killed = list(codes), False  # poll() results, one per call
+
+    def poll(self):
+        return self.codes.pop(0) if self.codes else None
+
+    def kill(self):
+        self.killed = True
+
+    def wait(self):
+        return -9
+
+
+class FakeClock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+
+def run_watchdog(children, beat=True, jumps=()):
+    clock, started = FakeClock(), []
+    beat_file = cg.Path(temp_dir()) / "heartbeat"
+    jumps = list(jumps)
+
+    def popen(command):
+        started.append(command)
+        return children.pop(0)
+
+    def sleep(seconds):
+        clock.sleep(seconds)
+        if jumps and clock.t >= jumps[0][0]:
+            clock.t += jumps.pop(0)[1]  # the computer slept
+        if beat is True or (beat == "until-sleep" and jumps):
+            beat_file.write_bytes(b"")
+            os.utime(beat_file, (clock.t, clock.t))
+
+    dog = cg.Watchdog(["app"], beat_file, popen=popen, sleep=sleep, clock=clock, wall_clock=clock)
+    return dog.run(), started
+
+
+code, started = run_watchdog([FakeChild([None, None, 0])])
+assert code == 0 and started == [["app"]], "normal exit ends the watchdog"
+crashed, fine = FakeChild([None, 0xC0000409]), FakeChild([None, 0])
+code, started = run_watchdog([crashed, fine])
+assert code == 0 and started == [["app"], ["app", "--after-restart"]], "a crash is restarted"
+code, started = run_watchdog([FakeChild([cg.EXIT_RESTART]), FakeChild([0])])
+assert code == 0 and len(started) == 2, "restart request (update)"
+stuck, fine = FakeChild([None] * 100), FakeChild([0])
+code, started = run_watchdog([stuck, fine], beat=False)
+assert stuck.killed and code == 0 and len(started) == 2, "no heartbeat for 30 s: killed and restarted"
+alive = FakeChild([None] * 30 + [0])
+code, started = run_watchdog([alive], beat=True, jumps=[(1010, 3600)])
+assert not alive.killed and code == 0, "an hour of sleep is not a hang"
+code, started = run_watchdog([FakeChild([1]) for _ in range(7)])
+assert code == 1 and len(started) == 6, "gives up after repeated crashes"
+sleeper = FakeChild([None] * 12 + [0])  # wakes up, its last heartbeat is an hour old
+code, started = run_watchdog([sleeper], beat="until-sleep", jumps=[(1010, 3600)])
+assert not sleeper.killed and code == 0, "the heartbeat's age after waking up is not a hang"
+# real processes: the first run crashes, the second exits normally
+counter = cg.Path(temp_dir()) / "runs"
+script = ("import pathlib, sys; p = pathlib.Path(sys.argv[1]); n = int(p.read_text() or 0) if p.exists() else 0; "
+          "p.write_text(str(n + 1)); sys.exit(0 if n else 7)")
+dog = cg.Watchdog([sys.executable, "-c", script, str(counter)], cg.Path(temp_dir()) / "hb",
+                  popen=lambda cmd: subprocess.Popen([c for c in cmd if c != "--after-restart"]))
+dog.POLL_SECONDS = 0.05
+assert dog.run() == 0 and counter.read_text() == "2"
+print("watchdog ok")
 print("ALL TESTS PASSED")

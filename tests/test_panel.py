@@ -243,6 +243,48 @@ root.update()
 assert panel.tab == "basic" and panel.config.panel_tab == "basic"
 print("Basic / Advanced tabs ok")
 
+
+# Scale tab: one slider per display, 25-point steps, applied after dragging, restored on demand
+
+
+class FakeDisplay:
+    def __init__(self, key, scale):
+        self.key, self.label, self.scale, self.sets = key, f"{key}. Ekran", scale, []
+
+    def get_scale(self):
+        return self.scale
+
+    def max_scale(self):
+        return 200
+
+    def set_scale(self, percent):
+        self.sets.append(percent)
+        self.scale = percent
+
+
+import tempfile  # noqa: E402
+displays = [FakeDisplay("1", 150), FakeDisplay("2", 100)]
+panel.scale_manager = cg.ScaleManager(lambda: displays, cg.Path(tempfile.mkdtemp()) / "s.json")
+panel.tab_labels["scale"].event_generate("<ButtonRelease-1>", x=3, y=3)
+root.update()
+assert panel.tab == "scale" and not panel.buttons.winfo_ismapped(), "mode buttons hidden on the Scale tab"
+assert set(panel.scale_rows) == {"1", "2"}
+var, value = panel.scale_rows["1"]
+assert value.cget("text") == "%150"
+var.set(117)  # dragged between steps -> snaps to 125
+panel._on_scale_slide("1")
+assert var.get() == 125 and value.cget("text") == "%150 → %125" and displays[0].sets == []
+root.after(700, root.quit)
+root.mainloop()
+assert displays[0].sets == [125], "applied once, after the drag"
+panel.restore_scales()
+root.update()
+assert displays[0].scale == 150 and panel.scale_rows["1"][1].cget("text") == "%150"
+panel.tab_labels["basic"].event_generate("<ButtonRelease-1>", x=3, y=3)
+root.update()
+assert panel.buttons.winfo_ismapped()
+print("Scale tab ok")
+
 # stop file -> clean exit
 state["visible"] = 1
 cg.STOP_PATH.write_text("")
