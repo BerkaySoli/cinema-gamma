@@ -9,6 +9,8 @@
 BenQ GW2790C'nin resim modlarında gamma veya kontrast ayarı yok ve Cinema modu oldukça karanlık. Ekran kartı renk ayarları (NVIDIA, AMD, Intel) bunu düzeltebilir ama her moda birden uygulanır. Cinema Gamma, Eye-CareU'daki her renk moduna kendi eğrisini verir ve modu değiştirdiğiniz anda o modun ayarına geçer.
 
 > **Resmî değildir.** Bu bir topluluk projesidir; BenQ tarafından yapılmamış, onaylanmamış ve desteklenmemektedir.
+>
+> **Sorumluluk reddi.** Program "olduğu gibi" sunulur, hiçbir garanti verilmez. Kullanımından doğabilecek her türlü sorundan, veri kaybından, donanım veya yazılım arızasından ve diğer zararlardan geliştirici sorumlu tutulamaz; kullanım riski size aittir. Ayrıntı: [Sorumluluk reddi](#sorumluluk-reddi).
 
 ## Kurulum
 
@@ -102,6 +104,12 @@ python tests/test_panel.py              # Tk paneli (ekran gerekir; Linux'ta: xv
 ```
 
 Kurulum dosyasını her push'ta GitHub Actions ([`build.yml`](.github/workflows/build.yml)) üretir: testleri çalıştırır, `CinemaGamma.exe`'yi PyInstaller ile, kurulum sihirbazını Inno Setup ile ([`installer/CinemaGamma.iss`](installer/CinemaGamma.iss)) derler, sonra exe'yi çalıştırıp sessizce kurup kaldırarak dener. `v1.2.3` gibi bir etiketle sürüm yayımlandığında `CinemaGamma-Setup-1.2.3.exe` o sürüme eklenir.
+
+## Sorumluluk reddi
+
+Cinema Gamma ekranın renk eğrisini (gamma, parlaklık, kontrast) ve ekran ölçeğini değiştirir. Bu değişiklikler geçicidir: program kapanınca ya da kaldırılınca ekran eski hâline döner.
+
+Program "olduğu gibi" sunulur ve hiçbir garanti verilmez. Kullanımından doğabilecek doğrudan ya da dolaylı her türlü sorundan, veri kaybından, donanım veya yazılım arızasından ve diğer zararlardan geliştirici sorumlu tutulamaz. Tüm kullanım riski kullanıcıya aittir. Kurulum sihirbazı bu metni kurulumdan önce gösterir.
 
 ## Lisans
 

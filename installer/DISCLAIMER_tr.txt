@@ -1,0 +1,9 @@
+﻿Sorumluluk reddi
+
+Cinema Gamma ücretsiz ve açık kaynaklı bir topluluk projesidir. BenQ tarafından yapılmamış, onaylanmamış ve desteklenmemektedir.
+
+Program ekranın renk eğrisini (gamma, parlaklık, kontrast) ve ekran ölçeğini değiştirir. Bu değişiklikler geçicidir: program kapanınca ya da kaldırılınca ekran eski hâline döner.
+
+Program "olduğu gibi" sunulur ve hiçbir garanti verilmez. Kullanımından doğabilecek doğrudan ya da dolaylı her türlü sorundan, veri kaybından, donanım veya yazılım arızasından ve diğer zararlardan geliştirici sorumlu tutulamaz. Tüm kullanım riski kullanıcıya aittir.
+
+Kuruluma devam ederek bu koşulları kabul etmiş olursunuz.

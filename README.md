@@ -9,6 +9,8 @@
 The BenQ GW2790C has no gamma or contrast control in its picture modes, and its Cinema mode is quite dark. GPU colour settings (NVIDIA, AMD, Intel) can fix that, but they apply to every mode. Cinema Gamma gives each Eye-CareU colour mode its own curve and switches it as soon as you change modes.
 
 > **Unofficial.** This is a community project. It is not made, endorsed or supported by BenQ.
+>
+> **Disclaimer.** Provided "as is", without warranty of any kind. The developer is not liable for any problem, data loss, hardware or software failure, or other damage arising from its use; you use it at your own risk. Details: [Disclaimer](#disclaimer).
 
 ## Install
 
@@ -107,6 +109,12 @@ python tests/test_panel.py              # Tk panel (needs a display; on Linux: x
 ```
 
 GitHub Actions ([`build.yml`](.github/workflows/build.yml)) builds the installer on every push: it runs the tests, builds `CinemaGamma.exe` with PyInstaller and the setup wizard with Inno Setup ([`installer/CinemaGamma.iss`](installer/CinemaGamma.iss)), then starts the exe and silently installs and uninstalls it as a smoke test. Publishing a release with a tag such as `v1.2.3` attaches `CinemaGamma-Setup-1.2.3.exe` to it.
+
+## Disclaimer
+
+Cinema Gamma changes your screen's colour curve (gamma, brightness, contrast) and display scale. These changes are temporary: the screen returns to its previous state when the program exits or is uninstalled.
+
+The program is provided "as is", without warranty of any kind. The developer is not liable for any direct or indirect problem, data loss, hardware or software failure, or other damage arising from its use. You use it entirely at your own risk. The setup wizard shows this text before installing.
 
 ## License
 

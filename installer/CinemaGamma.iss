@@ -39,8 +39,8 @@ WizardStyle=modern
 CloseApplications=no
 
 [Languages]
-Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"; InfoBeforeFile: "DISCLAIMER_tr.txt"
+Name: "english"; MessagesFile: "compiler:Default.isl"; InfoBeforeFile: "DISCLAIMER_en.txt"
 
 [CustomMessages]
 turkish.AutoStart=Windows açılışında otomatik başlat (önerilir)
