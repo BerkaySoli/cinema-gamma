@@ -31,7 +31,7 @@ g["CreateRectRgn"] = lambda *a: calls.append(("rect",) + a) or 2
 rect = {"value": (100, 100, 420, 530)}
 cg.find_eyecare_window = lambda match: EYECARE
 cg.visible_rect = lambda hwnd: rect["value"]
-cg.work_area = lambda hwnd: (0, 0, 1920, 1040)
+cg.work_area_at = lambda x, y: (0, 0, 1920, 1040) if 0 <= x < 1920 and 0 <= y < 1040 else None
 cg.window_title = lambda hwnd: "Eye-CareU"
 cg.is_main_window = lambda hwnd, r: True
 
@@ -84,15 +84,15 @@ assert all(s.instate(["disabled"]) for s in panel.scales), "sliders disabled unt
 root.update()
 assert root.winfo_ismapped(), "the Tk window must stay mapped"
 
-# Eye-CareU visible -> tucked 14 px under its right edge, 1 px top inset, stacked above it, rounded
+# Eye-CareU visible -> tucked 19 px under its right edge, level with its top, stacked above it, rounded
 calls.clear()
 state["foreground"] = EYECARE
 panel._follow_eyecare()
 root.update()
-height = max(429, panel.min_height)
-assert panel._geometry == (420 - 14, 101, W, height), panel._geometry
+height = max(430, panel.min_height)
+assert panel._geometry == (420 - 19, 100, W, height), panel._geometry
 assert panel.visible and engine.open_states[-1] is True
-assert ("pos", OUR_HWND, cg.HWND_TOP, 406, 101, W, height,
+assert ("pos", OUR_HWND, cg.HWND_TOP, 401, 100, W, height,
         cg.SWP_NOZORDER | cg.SWP_NOACTIVATE | cg.SWP_ASYNCWINDOWPOS) in calls
 assert any(c[0] == "pos" and c[1] == OUR_HWND and c[3:7] == (0, 0, 0, 0) for c in calls), "stacked above"
 assert ("roundrect", 0, 0, W + 1, height + 1, 28, 28) in calls, "outer corners rounded (r=14)"
@@ -162,14 +162,14 @@ assert [w for w in root.winfo_children() if w.winfo_class() == "Canvas"] == [pan
 calls.clear()
 panel.fold_button.event_generate("<ButtonRelease-1>", x=10, y=10)  # injected click
 root.update()
-tab = (406, 113, panel.OVERLAP + panel.TAB_W, panel.TAB_H)
+tab = (401, 112, panel.OVERLAP + panel.TAB_W, panel.TAB_H)
 assert panel.collapsed and panel.visible and panel._geometry == tab, panel._geometry
 assert ("roundrect", 0, 0, tab[2] + 1, tab[3] + 1, 20, 20) in calls, "tab corners rounded (r=10)"
 assert panel.tab_view.winfo_ismapped() and not panel.full_view.winfo_ismapped()
 assert panel.config.panel_collapsed is True
 rect["value"] = (300, 200, 620, 630)  # the tab follows Eye-CareU like the panel does
 panel._on_win_event(cg.EVENT_OBJECT_LOCATIONCHANGE, EYECARE)
-assert panel._geometry[:2] == (606, 213)
+assert panel._geometry[:2] == (601, 212)
 rect["value"] = (100, 100, 420, 530)
 panel._follow_eyecare()
 calls.clear()
@@ -177,7 +177,7 @@ panel.tab_view.event_generate("<ButtonRelease-1>", x=-3, y=5)  # release outside
 assert panel.collapsed
 panel.tab_view.event_generate("<ButtonRelease-1>", x=20, y=20)  # the arrow opens the panel again
 root.update()
-assert not panel.collapsed and panel._geometry == (406, 101, W, height)
+assert not panel.collapsed and panel._geometry == (401, 100, W, height)
 assert panel.full_view.winfo_ismapped() and not panel.tab_view.winfo_ismapped()
 assert ("roundrect", 0, 0, W + 1, height + 1, 28, 28) in calls
 root.after(900, root.quit)
@@ -191,33 +191,31 @@ panel._follow_eyecare()
 assert not panel.visible and panel._geometry == parked and engine.open_states[-1] is False
 state["iconic"] = 0
 panel._follow_eyecare()
-assert panel.visible and panel._geometry[:2] == (406, 101)
+assert panel.visible and panel._geometry[:2] == (401, 100)
 print("show/hide ok")
 
-# Eye-CareU near the right screen edge -> left side, no overlap, other corners rounded, padding swaps
+# Eye-CareU at the right screen edge -> the panel stays on the right, slid in to stay on screen
 rect["value"] = (1600, 100, 1900, 530)
 calls.clear()
 panel._follow_eyecare()
-assert panel._geometry[:3] == (1330, 101, panel.WIDTH) and panel._side == "left"
-assert ("rect", panel.WIDTH - 15, 0, panel.WIDTH, height) in calls
-panel._update_padding()
-assert panel._padding_side == "left"
-rect["value"] = (100, 100, 420, 530)
-panel._follow_eyecare()
+assert panel._geometry[:3] == (1920 - W, 100, W) and panel._side == "right", panel._geometry
 panel._update_padding()
 assert panel._padding_side == "right"
-print("left-side docking ok")
+rect["value"] = (100, 100, 420, 530)
+panel._follow_eyecare()
+
+print("right-edge docking ok")
 
 # WinEvents (follower thread): moves are followed immediately, other windows ignored
 rect["value"] = (300, 200, 620, 630)
 assert panel._on_win_event(cg.EVENT_OBJECT_LOCATIONCHANGE, EYECARE) is True
-assert panel._geometry[:2] == (606, 201), panel._geometry
+assert panel._geometry[:2] == (601, 200), panel._geometry
 before = panel._geometry
 rect["value"] = (0, 0, 320, 430)
 assert panel._on_win_event(cg.EVENT_OBJECT_LOCATIONCHANGE, 4242) is False
 assert panel._geometry == before, "events for other windows must be ignored"
 panel._on_burst()  # tight-follow tick catches up with the current position
-assert panel._geometry[:2] == (306, 1)
+assert panel._geometry[:2] == (301, 0)
 # Eye-CareU closed to the tray, then shown again with a new main window -> adopted at once
 state["visible"] = 0
 panel._on_win_event(cg.EVENT_OBJECT_HIDE if hasattr(cg, "EVENT_OBJECT_HIDE") else 0x8003, EYECARE)

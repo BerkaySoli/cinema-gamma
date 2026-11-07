@@ -139,11 +139,15 @@ assert cg.learn_mode_names(cg.Path("/nonexistent")) == {}
 print("mode-name learning ok:", cg.learn_mode_names())
 
 # --- docking geometry ----------------------------------------------------------------
-work = (0, 0, 1920, 1040)
-assert cg.dock_position((100, 100, 400, 520), work, 270, 380, 14) == (386, 100, 284, 420, "right")
-assert cg.dock_position((1700, 100, 1900, 520), work, 270, 380, 14) == (1430, 100, 270, 420, "left")
-assert cg.dock_position((100, 900, 400, 1320), work, 270, 380, 14)[1] == 620   # kept on screen
-assert cg.dock_position((100, 100, 400, 300), work, 270, 380, 14)[3] == 380    # min height
+screens = [(0, 0, 1920, 1040), (0, -1080, 1920, -40)]  # laptop below, BenQ above (11-07 setup)
+def area(x, y):
+    return next((s for s in screens if s[0] <= x < s[2] and s[1] <= y < s[3]), None)
+dock = lambda win, mh=380: cg.dock_position(win, 270, mh, 19, area)
+assert dock((100, 100, 400, 520)) == (381, 100, 289, 420, "right")
+assert dock((1700, 100, 1900, 520)) == (1631, 100, 289, 420, "right")   # slides in, never jumps left
+assert dock((100, 900, 400, 1320))[1] == 900                           # level with Eye-CareU
+assert dock((100, -200, 400, 230))[1] == -200                          # straddling two screens: not pushed up
+assert dock((100, 100, 400, 300))[3] == 380                            # min height
 print("docking geometry ok")
 
 # --- finding the Eye-CareU main window -------------------------------------------------

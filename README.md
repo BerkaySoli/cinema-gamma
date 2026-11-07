@@ -52,7 +52,7 @@ The panel's labels are in Turkish:
 
 ## Features
 
-- **Docks to Eye-CareU.** The panel sits flush against the Eye-CareU window, in its colours and with matching rounded corners. When Eye-CareU is near the right edge of the screen, the panel moves to its left side.
+- **Docks to Eye-CareU.** The panel sits flush against the Eye-CareU window, in its colours and with matching rounded corners. It stays level with Eye-CareU even when the window spans two screens, and at the right edge of the screen it slides in over Eye-CareU instead of jumping to the other side. Hold and drag the panel's header to move Eye-CareU and the panel together.
 - **Follows without polling.** Window events drive the panel. After Eye-CareU moves, the panel tracks it closely for 10 seconds, then goes idle, so it uses no CPU while nothing moves.
 - **One setting per mode.** Gamma (0.70–1.60), brightness (−0.30 to +0.30), contrast (0.50–1.50), colour temperature (4000–9000 K) and red, green and blue gains (0.50–1.00) are stored separately for Standard, Cinema, Game, ePaper, Care Mode and any other mode. Modes you never touch stay at the default.
 - **Instant switching.** Mode changes show up in Eye-CareU's log, and the panel picks them up in about 0.2 seconds. A direct DDC/CI read of the monitor also catches changes made with the monitor's own buttons.

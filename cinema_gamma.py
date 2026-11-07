@@ -304,6 +304,7 @@ DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x1  # flag on an adapter (output) entry
 ERROR_ALREADY_EXISTS = 183
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
+MONITOR_DEFAULTTONULL = 0
 MONITOR_DEFAULTTONEAREST = 2
 GA_ROOT = 2
 GW_HWNDPREV = 3
@@ -393,6 +394,7 @@ _sig(user32.GetWindowThreadProcessId, wintypes.DWORD, wintypes.HWND, ctypes.POIN
 _sig(user32.GetWindowTextLengthW, ctypes.c_int, wintypes.HWND)
 _sig(user32.GetWindowTextW, ctypes.c_int, wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
 _sig(user32.GetWindowRect, wintypes.BOOL, wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+_sig(user32.GetCursorPos, wintypes.BOOL, ctypes.POINTER(wintypes.POINT))
 _sig(user32.GetWindow, wintypes.HWND, wintypes.HWND, wintypes.UINT)
 _sig(user32.GetWindowLongW, wintypes.LONG, wintypes.HWND, ctypes.c_int)
 _sig(user32.GetForegroundWindow, wintypes.HWND)
@@ -407,6 +409,7 @@ _sig(gdi32.CreateRectRgn, wintypes.HRGN, ctypes.c_int, ctypes.c_int, ctypes.c_in
 _sig(gdi32.CombineRgn, ctypes.c_int, wintypes.HRGN, wintypes.HRGN, wintypes.HRGN, ctypes.c_int)
 _sig(gdi32.DeleteObject, wintypes.BOOL, wintypes.HGDIOBJ)
 _sig(user32.MonitorFromWindow, wintypes.HMONITOR, wintypes.HWND, wintypes.DWORD)
+_sig(user32.MonitorFromPoint, wintypes.HMONITOR, wintypes.POINT, wintypes.DWORD)
 _sig(user32.GetMonitorInfoW, wintypes.BOOL, wintypes.HMONITOR, ctypes.POINTER(MONITORINFO))
 _sig(user32.SetWinEventHook, wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.HMODULE,
      WINEVENTPROC, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD)
@@ -958,18 +961,36 @@ def find_eyecare_window(match: str):
     return best
 
 
-def dock_position(window: tuple[int, int, int, int], work: tuple[int, int, int, int],
-                  width: int, min_height: int, overlap: int) -> tuple[int, int, int, int, str]:
-    """(x, y, w, h, side) for the panel. On the right it slides `overlap` pixels
-    under Eye-CareU's rounded corners so the two read as one window; if the
-    screen has no room there it goes on the left. Same height as Eye-CareU."""
+def work_area_at(x: int, y: int) -> tuple[int, int, int, int] | None:
+    """Usable area of the screen under a point, or None if no screen is there."""
+    monitor = user32.MonitorFromPoint(wintypes.POINT(x, y), MONITOR_DEFAULTTONULL)
+    if not monitor:
+        return None
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    user32.GetMonitorInfoW(monitor, ctypes.byref(info))
+    r = info.rcWork
+    return r.left, r.top, r.right, r.bottom
+
+
+def dock_position(window: tuple[int, int, int, int], width: int, min_height: int, overlap: int,
+                  area_at=None) -> tuple[int, int, int, int, str]:
+    """(x, y, w, h, side) for the panel: always on Eye-CareU's right, sliding
+    `overlap` pixels under its rounded corners so the two read as one window.
+    Top edge level with Eye-CareU's even when it straddles two screens (the
+    panel used to be pushed up onto the upper screen). At the right edge of the
+    desktop the panel slides in over Eye-CareU instead of jumping to the left."""
+    area_at = area_at or work_area_at  # looked up at call time (tests replace it)
     left, top, right, bottom = window
-    work_left, work_top, work_right, work_bottom = work
     height = max(bottom - top, min_height)
-    y = max(work_top, min(top, work_bottom - height))
-    if right + width <= work_right:
-        return right - overlap, y, width + overlap, height, "right"
-    return left - width, y, width, height, "left"
+    total = width + overlap
+    x, y = right - overlap, top
+    edge_y = min(top + 20, bottom - 1)  # a row just inside Eye-CareU's top
+    if area_at(x + total - 1, edge_y) is None:  # no screen to the right of Eye-CareU
+        area = area_at(right - 1, edge_y) or area_at(left, edge_y)
+        if area:
+            x = max(area[0], min(x, area[2] - total))
+    return x, y, total, height, "right"
 
 
 # ---------------------------------------------------------------------------
@@ -1341,10 +1362,10 @@ def round_setting(key: str, value: float) -> float:
 
 class DockedPanel:
     WIDTH = 270              # visible width, physical pixels
-    OVERLAP = 14             # tucked under Eye-CareU's rounded corners (= its corner radius)
+    OVERLAP = 19            # tucked under Eye-CareU's rounded corners (radius 14 + its anti-aliased edge)
     RADIUS = 14              # our own outer corners, same as Eye-CareU's
     HEADER_H, TABS_H = 77, 50  # Eye-CareU's right-pane colour bands (100 % display scaling)
-    TOP_INSET = 1            # Eye-CareU's first painted row is 1 px below its frame bounds
+    TOP_INSET = 0            # measured 11-07: Eye-CareU paints from its first frame row (1 left a 1 px step)
     TAB_W, TAB_H = 30, 44    # the folded panel: a small tab with an arrow, visible part
     TAB_TOP = 12             # its distance from Eye-CareU's top edge
     TAB_RADIUS = 10
@@ -1443,8 +1464,11 @@ class DockedPanel:
                                      bd=0, cursor="hand2")
         self.fold_button.place(relx=1.0, x=6, y=8, anchor="ne")
         self._bind_click(self.fold_button, self.collapse)
-        tk.Label(header_in, text="Mod Ayarları", bg=c["header"], fg=c["text"],  # on Eye-CareU's "Settings" line
-                 font=("Segoe UI Semibold", 11)).place(x=0, rely=1.0, y=-6, anchor="sw")
+        title = tk.Label(header_in, text="Mod Ayarları", bg=c["header"], fg=c["text"],  # on Eye-CareU's "Settings" line
+                         font=("Segoe UI Semibold", 11))
+        title.place(x=0, rely=1.0, y=-6, anchor="sw")
+        for widget in (header, header_in, title):  # hold and drag: Eye-CareU moves, the panel follows
+            self._bind_drag(widget)
 
         # Tab row, like Eye-CareU's "General | Advanced | Help" right next to it.
         tabs = tk.Frame(full, bg=c["tabs"], height=self.TABS_H)
@@ -1651,6 +1675,35 @@ class DockedPanel:
         if self.tab == "scale":
             self._build_scale_tab()
         self._flash("Ölçekler orijinal hâline döndü.", "accent")
+
+    def _bind_drag(self, widget) -> None:
+        widget.bind("<ButtonPress-1>", self._drag_start, add="+")
+        widget.bind("<B1-Motion>", self._drag_move, add="+")
+        widget.bind("<ButtonRelease-1>", self._drag_end, add="+")
+
+    def _drag_start(self, event) -> None:
+        """Remember where the drag began; the header acts as a shared title bar."""
+        hwnd = self.eyecare
+        self._drag = None
+        if hwnd and user32.IsWindow(hwnd):
+            rect, cursor = wintypes.RECT(), wintypes.POINT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            user32.GetCursorPos(ctypes.byref(cursor))  # physical pixels, like GetWindowRect (Tk's x_root is not)
+            self._drag = (cursor.x, cursor.y, rect.left, rect.top)
+
+    def _drag_move(self, _event) -> None:
+        """Move Eye-CareU itself; its move event brings the panel along."""
+        drag = getattr(self, "_drag", None)
+        if not drag or not self.eyecare:
+            return
+        start_x, start_y, win_x, win_y = drag
+        cursor = wintypes.POINT()
+        user32.GetCursorPos(ctypes.byref(cursor))
+        user32.SetWindowPos(self.eyecare, None, win_x + cursor.x - start_x, win_y + cursor.y - start_y,
+                            0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS)
+
+    def _drag_end(self, _event) -> None:
+        self._drag = None
 
     def _bind_click(self, canvas, command) -> None:
         """Fire on mouse-button release over the canvas (works for injected clicks too); the
@@ -1896,11 +1949,11 @@ class DockedPanel:
             return None
         left, top, right, bottom = visible_rect(hwnd)
         window = (left, top + self.TOP_INSET, right, bottom)
-        x, y, w, h, side = dock_position(window, work_area(hwnd), self.WIDTH, self.min_height, self.OVERLAP)
+        x, y, w, h, side = dock_position(window, self.WIDTH, self.min_height, self.OVERLAP)
         self._side = side
-        if self.collapsed:  # just the arrow tab, on the same side the panel would open
+        if self.collapsed:  # just the arrow tab, at the panel's right end (stays on screen)
             y, h = window[1] + self.TAB_TOP, self.TAB_H
-            x, w = (right - self.OVERLAP, self.OVERLAP + self.TAB_W) if side == "right" else (left - self.TAB_W, self.TAB_W)
+            x, w = min(right - self.OVERLAP, x + w - self.OVERLAP - self.TAB_W), self.OVERLAP + self.TAB_W
         self._place(x, y, w, h)
         if not self.visible:
             self.visible = True

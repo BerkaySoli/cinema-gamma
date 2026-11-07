@@ -47,7 +47,7 @@ Sağ üstteki ok, paneli Eye-CareU'nun kenarında küçük bir kareye katlar; ka
 
 ## Özellikler
 
-- **Eye-CareU'ya yapışır.** Panel, Eye-CareU penceresine boşluksuz yapışır; aynı renkleri ve aynı yuvarlak köşeleri kullanır. Eye-CareU ekranın sağ kenarına yakınsa panel sol tarafa geçer.
+- **Eye-CareU'ya yapışır.** Panel, Eye-CareU penceresine boşluksuz yapışır; aynı renkleri ve aynı yuvarlak köşeleri kullanır. Pencere iki ekranın sınırında dursa da Eye-CareU ile aynı hizada kalır; ekranın sağ kenarında karşı tarafa atlamaz, Eye-CareU'nun üzerine kayarak ekranda kalır. Panelin başlığını basılı tutup sürüklerseniz Eye-CareU ile panel birlikte taşınır.
 - **Sürekli kontrol etmeden takip eder.** Paneli pencere olayları yönetir. Eye-CareU hareket ettikten sonra 10 saniye boyunca sıkı takip eder, sonra uykuya geçer; hiçbir şey hareket etmezken işlemci kullanmaz.
 - **Her moda ayrı ayar.** Gamma (0,70–1,60), parlaklık (−0,30 ile +0,30 arası), kontrast (0,50–1,50), renk sıcaklığı (4000–9000 K) ve kırmızı, yeşil, mavi kazancı (0,50–1,00); Standard, Cinema, Game, ePaper, Care Mode ve diğer tüm modlar için ayrı saklanır. Hiç dokunmadığınız modlar varsayılanda kalır.
 - **Anında geçiş.** Mod değişikliği Eye-CareU'nun günlüğüne düşer ve panel bunu yaklaşık 0,2 saniyede yakalar. Monitörün kendi tuşlarıyla yapılan değişiklikleri de monitörden DDC/CI ile doğrudan okuyarak yakalar.
