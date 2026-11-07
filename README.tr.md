@@ -109,7 +109,7 @@ Kurulum dosyasını her push'ta GitHub Actions ([`build.yml`](.github/workflows/
 
 Cinema Gamma ekranın renk eğrisini (gamma, parlaklık, kontrast) ve ekran ölçeğini değiştirir. Bu değişiklikler geçicidir: program kapanınca ya da kaldırılınca ekran eski hâline döner.
 
-Program "olduğu gibi" sunulur ve hiçbir garanti verilmez. Kullanımından doğabilecek doğrudan ya da dolaylı her türlü sorundan, veri kaybından, donanım veya yazılım arızasından ve diğer zararlardan geliştirici sorumlu tutulamaz. Tüm kullanım riski kullanıcıya aittir. Kurulum sihirbazı bu metni kurulumdan önce gösterir.
+Program "olduğu gibi" sunulur ve hiçbir garanti verilmez. Kullanımından doğabilecek doğrudan ya da dolaylı her türlü sorundan, veri kaybından, donanım veya yazılım arızasından ve diğer zararlardan geliştirici sorumlu tutulamaz. Tüm kullanım riski kullanıcıya aittir. Kurulum sihirbazı bu metni lisansla birlikte gösterir; "Kabul ediyorum" seçilmeden kurulum yapılmaz.
 
 ## Lisans
 

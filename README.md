@@ -114,7 +114,7 @@ GitHub Actions ([`build.yml`](.github/workflows/build.yml)) builds the installer
 
 Cinema Gamma changes your screen's colour curve (gamma, brightness, contrast) and display scale. These changes are temporary: the screen returns to its previous state when the program exits or is uninstalled.
 
-The program is provided "as is", without warranty of any kind. The developer is not liable for any direct or indirect problem, data loss, hardware or software failure, or other damage arising from its use. You use it entirely at your own risk. The setup wizard shows this text before installing.
+The program is provided "as is", without warranty of any kind. The developer is not liable for any direct or indirect problem, data loss, hardware or software failure, or other damage arising from its use. You use it entirely at your own risk. The setup wizard shows this text with the licence and installs only after you select "I accept".
 
 ## License
 
